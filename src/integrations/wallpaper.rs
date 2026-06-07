@@ -1,6 +1,9 @@
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
 use rayon::prelude::*;
@@ -64,20 +67,16 @@ impl Integration for WallpaperIntegration {
         let total = sources.len();
         eprintln!("wallrack: wallpaper: {total} images found, generating thumbnails...");
 
-        // Throttled progress: each rayon worker bumps a counter; we print
-        // every 50 items so output stays useful even on huge libraries.
-        let done = AtomicUsize::new(0);
+        let progress = Progress::new("wallpaper", total);
         let entries: Vec<Entry> = sources
             .par_iter()
             .filter_map(|src| {
                 let entry = build_entry(src, &thumbs_dir, thumb_size).ok();
-                let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-                if n % 50 == 0 || n == total {
-                    eprintln!("wallrack: wallpaper: {n}/{total} processed");
-                }
+                progress.tick();
                 entry
             })
             .collect();
+        progress.finish();
 
         let index = Index { integration: NAME.to_string(), entries };
         crate::integrations::write_index(paths, &index)?;
@@ -213,6 +212,94 @@ fn read_project_json(path: &Path) -> Result<ProjectJson> {
     let body = std::fs::read_to_string(path)?;
     let parsed: ProjectJson = serde_json::from_str(&body)?;
     Ok(parsed)
+}
+
+// One rayon-friendly progress reporter. Each worker calls `tick()`; we throttle
+// rendering to ~16fps so the terminal isn't slammed with writes, and only one
+// thread holds the render mutex at a time. Uses `\r` + `\x1b[K` (clear-to-EOL)
+// in a single write so the line is updated atomically without flicker. Falls
+// back to coarse line-per-50-items output when stderr isn't a TTY.
+struct Progress {
+    label: &'static str,
+    total: usize,
+    done: AtomicUsize,
+    last: Mutex<Instant>,
+    rendered: AtomicBool,
+    tty: bool,
+    start: Instant,
+}
+
+const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const BAR_WIDTH: usize = 30;
+const FRAME_MS: u128 = 60;
+
+impl Progress {
+    fn new(label: &'static str, total: usize) -> Self {
+        Self {
+            label,
+            total,
+            done: AtomicUsize::new(0),
+            last: Mutex::new(Instant::now()),
+            rendered: AtomicBool::new(false),
+            tty: std::io::stderr().is_terminal(),
+            start: Instant::now(),
+        }
+    }
+
+    fn tick(&self) {
+        let n = self.done.fetch_add(1, Ordering::Relaxed) + 1;
+        if !self.tty {
+            if n % 50 == 0 || n == self.total {
+                eprintln!("wallrack: {}: {}/{} processed", self.label, n, self.total);
+            }
+            return;
+        }
+        // try_lock so contending workers drop their tick instead of blocking the
+        // par_iter; the next worker past the throttle window will pick it up.
+        let Ok(mut last) = self.last.try_lock() else { return };
+        let need_first = !self.rendered.load(Ordering::Relaxed);
+        if !need_first && last.elapsed().as_millis() < FRAME_MS {
+            return;
+        }
+        *last = Instant::now();
+        drop(last);
+        self.rendered.store(true, Ordering::Relaxed);
+        self.render(n);
+    }
+
+    fn render(&self, n: usize) {
+        let frac = if self.total == 0 {
+            1.0
+        } else {
+            (n as f32 / self.total as f32).min(1.0)
+        };
+        let filled = (frac * BAR_WIDTH as f32).round() as usize;
+        let pct = (frac * 100.0) as u32;
+        let spin = SPINNER[(self.start.elapsed().as_millis() / 80) as usize % SPINNER.len()];
+        let mut bar = String::with_capacity(BAR_WIDTH * 3);
+        for i in 0..BAR_WIDTH {
+            bar.push(if i < filled { '█' } else { '░' });
+        }
+        let line = format!(
+            "\rwallrack: {} {} [{}] {}/{} ({}%)\x1b[K",
+            self.label, spin, bar, n, self.total, pct
+        );
+        let stderr = std::io::stderr();
+        let mut handle = stderr.lock();
+        let _ = handle.write_all(line.as_bytes());
+        let _ = handle.flush();
+    }
+
+    fn finish(&self) {
+        let n = self.done.load(Ordering::Relaxed);
+        if self.tty {
+            // Force a final render in case the last tick was throttled out.
+            self.render(n);
+            let _ = writeln!(std::io::stderr());
+        } else {
+            eprintln!("wallrack: {}: {}/{} processed", self.label, n, self.total);
+        }
+    }
 }
 
 fn build_entry(src: &EntrySource, thumbs_dir: &Path, size: u32) -> Result<Entry> {
