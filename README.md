@@ -159,7 +159,7 @@ changes, so frontends never have to trigger a manual rebuild.
 
 ## Reference frontend (rofi)
 
-[`swww_we_picker.sh`](./swww_we_picker.sh) is a rofi script-mode wrapper that
+[`wallrack_rofi_picker.sh`](./picker/wallrack_rofi_picker.sh) is a rofi script-mode wrapper that
 drives wallrack — favorites, tag filter, drill-down, mode switch, monitor
 picker, optional matugen + mako theming. It's a complete working example,
 not the project's headline feature. See the comment block at the top of the
