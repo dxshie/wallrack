@@ -620,18 +620,22 @@ fn cmd_monitors(paths: &Paths, integration: Option<&str>, target: Option<&str>, 
         Format::Rofi => {
             // Emit one rofi row per monitor. The `info` field carries the
             // target (image path or WE folder) so the shell can apply once
-            // the user picks a monitor.
+            // the user picks a monitor. Rofi expects a single \0 between the
+            // display text and the metadata block; subsequent pairs are
+            // separated by \x1f — a second \0 hides everything after it.
             for m in &monitors {
                 let icon = current_thumb_for_monitor(&integration, m, paths);
                 out.write_all(m.as_bytes())?;
+                let mut wrote_meta = false;
                 if let Some(icon) = icon {
                     out.write_all(&[0])?;
+                    wrote_meta = true;
                     write!(out, "icon")?;
                     out.write_all(&[0x1f])?;
                     out.write_all(icon.to_string_lossy().as_bytes())?;
                 }
                 if let Some(t) = target {
-                    out.write_all(&[0])?;
+                    out.write_all(&[if wrote_meta { 0x1f } else { 0 }])?;
                     write!(out, "info")?;
                     out.write_all(&[0x1f])?;
                     out.write_all(t.as_bytes())?;
@@ -673,15 +677,18 @@ fn current_thumb_for_monitor(integration: &str, monitor: &str, paths: &Paths) ->
                 .map(|e| e.thumb)
         }
         "wallpaper" => {
-            // Parse `awww query` for "<monitor>: image: <path>".
+            // awww query lines look like
+            //   `: <monitor>: <details> currently displaying: image: <path>`
+            // Older swww output dropped the leading `: `, so trim it before
+            // matching the monitor prefix.
             let out = Command::new("awww").arg("query").output().ok()?;
             if !out.status.success() { return None; }
             let text = String::from_utf8_lossy(&out.stdout);
             for line in text.lines() {
-                if let Some(rest) = line.strip_prefix(&format!("{monitor}:")) {
-                    if let Some(img) = rest.split("image:").nth(1) {
-                        return Some(PathBuf::from(img.trim()));
-                    }
+                let trimmed = line.trim_start_matches(|c: char| c == ':' || c == ' ');
+                let Some(rest) = trimmed.strip_prefix(&format!("{monitor}:")) else { continue };
+                if let Some(img) = rest.split("image:").nth(1) {
+                    return Some(PathBuf::from(img.trim()));
                 }
             }
             None
