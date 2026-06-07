@@ -13,11 +13,11 @@
 # - mako, matugen, pywalfox
 #
 # rofi script-mode keybindings:
-#   Alt+1  kb-custom-1  toggle favorite on the highlighted entry
-#   Alt+2  kb-custom-2  switch between all wallpapers and favorites view
-#   Alt+3  kb-custom-3  rebuild the index (current integration)
-#   Alt+4  kb-custom-4  switch between wallpaper and Wallpaper Engine mode
-#   Alt+5  kb-custom-5  open tag filter selection
+#   Alt+1  kb-custom-1   switch between wallpaper and Wallpaper Engine mode
+#   Alt+2  kb-custom-2   open tag filter selection
+#   Alt+3  kb-custom-3   toggle favorite on the highlighted entry
+#   Alt+4  kb-custom-4   switch between all wallpapers and favorites view
+#   Alt+0  kb-custom-10  rebuild the index (current integration)
 
 set -o pipefail
 
@@ -137,7 +137,31 @@ case "$ROFI_RETV" in
     exit 0
     ;;
   10)
-    # kb-custom-1: toggle favorite on highlighted entry
+    # kb-custom-1 (Alt+1): toggle between wallpaper and WE mode
+    if [[ "$picker_mode" == "we" ]]; then
+      wallrack state set picker_mode wallpaper >/dev/null
+    else
+      wallrack state set picker_mode we >/dev/null
+    fi
+    wallrack state set view_mode all >/dev/null
+    wallrack state unset drill_path >/dev/null
+    wallrack state unset tag_filter >/dev/null
+    wallrack state unset tag_mode >/dev/null
+    wallrack view
+    exit 0
+    ;;
+  11)
+    # kb-custom-2 (Alt+2): toggle tag filter selection
+    if [[ "$tag_mode" == "selecting" ]]; then
+      wallrack state unset tag_mode >/dev/null
+    else
+      wallrack state set tag_mode selecting >/dev/null
+    fi
+    wallrack view
+    exit 0
+    ;;
+  12)
+    # kb-custom-3 (Alt+3): toggle favorite on highlighted entry
     if [[ "$ROFI_INFO" == folder:* ]]; then
       # Folder rows aggregate many images and don't carry an entry id; refuse
       # to toggle so we don't end up adding the subfolder string as a bogus
@@ -155,12 +179,22 @@ case "$ROFI_RETV" in
       result=$(wallrack favorites toggle --integration="$picker_mode" "$target")
       label="${target##*/}"
       notify-send "${NOTIFY_OPTIONS[@]}" "$result favorite: $label"
+      # If we just emptied the favorites list while in favorites view, fall back
+      # to the all view — otherwise rofi has nothing to render and closes.
+      current_view=$(wallrack state get view_mode 2>/dev/null || echo all)
+      if [[ "$current_view" == "favorites" ]]; then
+        fav_count=$(wallrack favorites list --integration="$picker_mode" --format=json | jq 'length' 2>/dev/null || echo 0)
+        if [[ "$fav_count" == "0" ]]; then
+          wallrack state set view_mode all >/dev/null
+          notify-send "${NOTIFY_OPTIONS[@]}" "No favorites left — switched to all wallpapers."
+        fi
+      fi
     fi
     wallrack view
     exit 0
     ;;
-  11)
-    # kb-custom-2: toggle all/favorites view; exits drill-down if active
+  13)
+    # kb-custom-4 (Alt+4): toggle all/favorites view; exits drill-down if active
     wallrack state unset drill_path >/dev/null
     current=$(wallrack state get view_mode 2>/dev/null || echo all)
     if [[ "$current" == "favorites" ]]; then
@@ -168,7 +202,7 @@ case "$ROFI_RETV" in
     else
       fav_count=$(wallrack favorites list --integration="$picker_mode" --format=json | jq 'length' 2>/dev/null || echo 0)
       if [[ "$fav_count" == "0" ]]; then
-        notify-send "${NOTIFY_OPTIONS[@]}" "No favorites yet — press Alt+1 on a wallpaper to add one."
+        notify-send "${NOTIFY_OPTIONS[@]}" "No favorites yet — press Alt+3 on a wallpaper to add one."
         wallrack view
         exit 0
       fi
@@ -177,35 +211,11 @@ case "$ROFI_RETV" in
     wallrack view
     exit 0
     ;;
-  12)
-    # kb-custom-3: rebuild index for current integration
+  19)
+    # kb-custom-10 (Alt+0): rebuild index for current integration
     wallrack state unset drill_path >/dev/null
     start_refresh_background
     notify-send "${NOTIFY_OPTIONS[@]}" "Refreshing $picker_mode index in the background. Re-open the picker once done."
-    wallrack view
-    exit 0
-    ;;
-  13)
-    # kb-custom-4: toggle between wallpaper and WE mode
-    if [[ "$picker_mode" == "we" ]]; then
-      wallrack state set picker_mode wallpaper >/dev/null
-    else
-      wallrack state set picker_mode we >/dev/null
-    fi
-    wallrack state set view_mode all >/dev/null
-    wallrack state unset drill_path >/dev/null
-    wallrack state unset tag_filter >/dev/null
-    wallrack state unset tag_mode >/dev/null
-    wallrack view
-    exit 0
-    ;;
-  14)
-    # kb-custom-5: toggle tag filter selection
-    if [[ "$tag_mode" == "selecting" ]]; then
-      wallrack state unset tag_mode >/dev/null
-    else
-      wallrack state set tag_mode selecting >/dev/null
-    fi
     wallrack view
     exit 0
     ;;

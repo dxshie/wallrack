@@ -236,11 +236,11 @@ fn cmd_list(
     let mut out = BufWriter::new(stdout);
 
     if let Some(folder_path) = folder.as_deref() {
-        emit_drill_view(&mut out, &filtered, &favorites, &integration, folder_path, format)?;
+        emit_drill_view(&mut out, &filtered, &favorites, &integration, folder_path, favorites_only, tag.as_deref(), format)?;
     } else if group && integration == "wallpaper" {
-        emit_grouped_view(&mut out, &filtered, &favorites, &integration, format)?;
+        emit_grouped_view(&mut out, &filtered, &favorites, &integration, favorites_only, tag.as_deref(), format)?;
     } else {
-        emit_flat(&mut out, &filtered, &favorites, &integration, format)?;
+        emit_flat(&mut out, &filtered, &favorites, &integration, favorites_only, tag.as_deref(), format)?;
     }
     out.flush()?;
     Ok(ExitCode::SUCCESS)
@@ -293,6 +293,8 @@ fn emit_flat<W: Write>(
     entries: &[&Entry],
     favorites: &Favorites,
     integration: &str,
+    favorites_only: bool,
+    tag_filter: Option<&str>,
     format: Format,
 ) -> Result<()> {
     let rows: Vec<Row<'_>> = entries
@@ -304,21 +306,24 @@ fn emit_flat<W: Write>(
             info: None,
         })
         .collect();
-    write_rows(w, &rows, &view_hints_for(integration, None), format)
+    write_rows(w, &rows, &view_hints_for(integration, None, favorites_only, tag_filter), format)
 }
 
 fn emit_drill_view<W: Write>(
     w: &mut W,
     entries: &[&Entry],
     favorites: &Favorites,
-    _integration: &str,
+    integration: &str,
     folder_path: &str,
+    favorites_only: bool,
+    tag_filter: Option<&str>,
     format: Format,
 ) -> Result<()> {
     let mut rows: Vec<Row<'_>> = Vec::with_capacity(entries.len() + 1);
     rows.push(Row::Control {
         label: "← Back".to_string(),
         info: "back:".to_string(),
+        icon: None,
     });
     for e in entries {
         let label = e
@@ -333,12 +338,8 @@ fn emit_drill_view<W: Write>(
             info: Some(format!("image:{}", e.id)),
         });
     }
-    let prompt = folder_label(folder_path);
-    let hints = ViewHints {
-        prompt,
-        message: "Alt+1 fav | Alt+5 tag | select ← Back to return".to_string(),
-        use_hot_keys: true,
-    };
+    let mut hints = view_hints_for(integration, Some(folder_path), favorites_only, tag_filter);
+    hints.message = "Alt+3 fav | Alt+2 tag | select ← Back to return".to_string();
     write_rows(w, &rows, &hints, format)
 }
 
@@ -347,6 +348,8 @@ fn emit_grouped_view<W: Write>(
     entries: &[&Entry],
     favorites: &Favorites,
     integration: &str,
+    favorites_only: bool,
+    tag_filter: Option<&str>,
     format: Format,
 ) -> Result<()> {
     use std::collections::BTreeSet;
@@ -381,18 +384,29 @@ fn emit_grouped_view<W: Write>(
             });
         }
     }
-    write_rows(w, &rows, &view_hints_for(integration, None), format)
+    write_rows(w, &rows, &view_hints_for(integration, None, favorites_only, tag_filter), format)
 }
 
-fn view_hints_for(integration: &str, drill: Option<&str>) -> ViewHints {
-    let prompt = match (integration, drill) {
+fn view_hints_for(
+    integration: &str,
+    drill: Option<&str>,
+    favorites_only: bool,
+    tag_filter: Option<&str>,
+) -> ViewHints {
+    let base = match (integration, drill) {
         (_, Some(d)) => folder_label(d),
         ("we", _) => "WE".to_string(),
         _ => "Wallpapers".to_string(),
     };
+    let mut prompt = if favorites_only { format!("★ {base}") } else { base };
+    if let Some(t) = tag_filter {
+        if !t.is_empty() {
+            prompt = format!("{prompt} #{t}");
+        }
+    }
     ViewHints {
         prompt,
-        message: "Alt+1 fav | Alt+2 view | Alt+3 refresh | Alt+4 mode | Alt+5 tag".to_string(),
+        message: "Alt+1 mode | Alt+2 tag | Alt+3 fav | Alt+4 view | Alt+0 refresh".to_string(),
         use_hot_keys: true,
     }
 }
@@ -437,14 +451,14 @@ fn cmd_view(paths: &Paths, format: Format) -> Result<ExitCode> {
     let mut out = BufWriter::new(stdout);
 
     if let Some(folder_path) = folder_opt {
-        emit_drill_view(&mut out, &filtered, &favorites, &integration, folder_path, format)?;
+        emit_drill_view(&mut out, &filtered, &favorites, &integration, folder_path, favorites_only, tag, format)?;
     } else if drill.is_empty() && integration == "wallpaper" && !favorites_only {
         // Grouping collapses workshop subfolders into folder rows, which is
         // wrong for the favorites view: a favorite is an individual image and
-        // Alt+1 on a folder row can't recover the real entry id.
-        emit_grouped_view(&mut out, &filtered, &favorites, &integration, format)?;
+        // Alt+3 on a folder row can't recover the real entry id.
+        emit_grouped_view(&mut out, &filtered, &favorites, &integration, favorites_only, tag, format)?;
     } else {
-        emit_flat(&mut out, &filtered, &favorites, &integration, format)?;
+        emit_flat(&mut out, &filtered, &favorites, &integration, favorites_only, tag, format)?;
     }
     out.flush()?;
     Ok(ExitCode::SUCCESS)
@@ -463,11 +477,27 @@ fn cmd_tags(paths: &Paths, integration: Option<&str>, format: Format) -> Result<
     let integ = integrations::by_name(&integration)?;
     let index = integ.read_index(paths)?;
 
-    use std::collections::BTreeSet;
-    let mut tags: BTreeSet<&str> = BTreeSet::new();
+    use std::collections::BTreeMap;
+    // Map each tag to the first entry we see whose thumbnail exists on disk —
+    // that gives rofi something to render next to the tag label. Entries
+    // without a usable thumb still contribute the tag itself.
+    let mut tag_thumb: BTreeMap<&str, Option<&std::path::Path>> = BTreeMap::new();
     for e in &index.entries {
+        let thumb: Option<&std::path::Path> = if e.thumb.as_os_str().is_empty() {
+            None
+        } else {
+            Some(e.thumb.as_path())
+        };
         for t in &e.tags {
-            if !t.is_empty() { tags.insert(t.as_str()); }
+            if t.is_empty() { continue; }
+            let slot = tag_thumb.entry(t.as_str()).or_insert(None);
+            if slot.is_none() {
+                if let Some(p) = thumb {
+                    if p.exists() {
+                        *slot = Some(p);
+                    }
+                }
+            }
         }
     }
 
@@ -475,22 +505,27 @@ fn cmd_tags(paths: &Paths, integration: Option<&str>, format: Format) -> Result<
     let mut out = BufWriter::new(stdout);
     match format {
         Format::Json => {
-            let list: Vec<&str> = tags.into_iter().collect();
+            let list: Vec<&str> = tag_thumb.keys().copied().collect();
             serde_json::to_writer(&mut out, &list)?;
         }
         Format::Rofi => {
             // Header + "All tags" reset row + one row per tag.
             let mut rows: Vec<Row<'_>> = Vec::new();
-            rows.push(Row::Control { label: "All tags".to_string(), info: "tag:".to_string() });
-            for t in tags {
+            rows.push(Row::Control {
+                label: "All tags".to_string(),
+                info: "tag:".to_string(),
+                icon: None,
+            });
+            for (t, thumb) in &tag_thumb {
                 rows.push(Row::Control {
                     label: t.to_string(),
                     info: format!("tag:{t}"),
+                    icon: thumb.map(|p| p.to_path_buf()),
                 });
             }
             let hints = ViewHints {
                 prompt: "Filter by Tag".to_string(),
-                message: "Select a tag — Alt+5 to cancel".to_string(),
+                message: "Select a tag — Alt+2 to cancel".to_string(),
                 use_hot_keys: true,
             };
             write_rows(&mut out, &rows, &hints, format)?;

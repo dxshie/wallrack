@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::ValueEnum;
@@ -38,6 +39,9 @@ pub enum Row<'a> {
     Control {
         label: String,
         info: String,
+        /// Optional thumbnail to render alongside the row (e.g. a sample image
+        /// for a tag in the tag-picker view). Ignored when empty.
+        icon: Option<PathBuf>,
     },
 }
 
@@ -72,10 +76,11 @@ fn write_json<W: Write>(w: &mut W, rows: &[Row<'_>]) -> Result<()> {
                 "favorite": favorite,
                 "info": info,
             })),
-            Row::Control { label, info } => Some(json!({
+            Row::Control { label, info, icon } => Some(json!({
                 "control": true,
                 "label": label,
                 "info": info,
+                "icon": icon,
             })),
         })
         .collect();

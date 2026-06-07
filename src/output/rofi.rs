@@ -67,9 +67,19 @@ pub fn write<W: Write>(w: &mut W, rows: &[Row<'_>], hints: &ViewHints) -> Result
                 }
                 writeln!(w)?;
             }
-            Row::Control { label, info } => {
+            Row::Control { label, info, icon } => {
                 w.write_all(label.as_bytes())?;
-                w.write_all(&[NUL])?;
+                let mut wrote_meta = false;
+                if let Some(path) = icon {
+                    if !path.as_os_str().is_empty() {
+                        w.write_all(&[NUL])?;
+                        wrote_meta = true;
+                        write!(w, "icon")?;
+                        w.write_all(&[SEP])?;
+                        w.write_all(path.to_string_lossy().as_bytes())?;
+                    }
+                }
+                w.write_all(&[if wrote_meta { SEP } else { NUL }])?;
                 write!(w, "info")?;
                 w.write_all(&[SEP])?;
                 w.write_all(info.as_bytes())?;
