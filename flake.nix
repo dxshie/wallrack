@@ -32,7 +32,7 @@
           # Ship the rofi reference frontend next to the binary so users who
           # want it can wire `wallrack-rofi-picker` straight into their hotkey.
           postInstall = ''
-            install -Dm755 swww_we_picker.sh $out/bin/wallrack-rofi-picker
+            install -Dm755 picker/wallrack_rofi_picker.sh $out/bin/wallrack-rofi-picker
           '';
 
           meta = with pkgs.lib; {
