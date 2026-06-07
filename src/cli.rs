@@ -1,12 +1,66 @@
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
 use anyhow::{Context, Result, anyhow};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use serde::Deserialize;
 
 use crate::config::Config;
+
+// ───── terminal color helpers ────────────────────────────────────────────────
+
+struct C {
+    bold:   &'static str,
+    green:  &'static str,
+    yellow: &'static str,
+    cyan:   &'static str,
+    red:    &'static str,
+    dim:    &'static str,
+    reset:  &'static str,
+}
+
+impl C {
+    fn stdout() -> Self { Self::for_tty(io::stdout().is_terminal()) }
+    fn stderr() -> Self { Self::for_tty(io::stderr().is_terminal()) }
+    fn for_tty(on: bool) -> Self {
+        if on {
+            Self { bold: "\x1b[1m", green: "\x1b[32m", yellow: "\x1b[33m",
+                   cyan: "\x1b[36m", red: "\x1b[31m", dim: "\x1b[2m", reset: "\x1b[0m" }
+        } else {
+            Self { bold: "", green: "", yellow: "", cyan: "", red: "", dim: "", reset: "" }
+        }
+    }
+}
+
+fn make_clap_styles() -> clap::builder::Styles {
+    use clap::builder::styling::{AnsiColor, Effects, Styles};
+    Styles::styled()
+        .header(AnsiColor::Yellow.on_default()  | Effects::BOLD)
+        .usage(AnsiColor::Green.on_default()    | Effects::BOLD)
+        .literal(AnsiColor::Cyan.on_default()   | Effects::BOLD)
+        .placeholder(AnsiColor::White.on_default())
+        .error(AnsiColor::Red.on_default()      | Effects::BOLD)
+        .valid(AnsiColor::Green.on_default())
+        .invalid(AnsiColor::Yellow.on_default())
+}
+
+// ───── notify-send helpers ────────────────────────────────────────────────────
+
+const NOTIFY_REPLACE_ID: &str = "9991";
+
+fn is_rofi_context() -> bool {
+    std::env::var("ROFI_RETV").is_ok()
+}
+
+fn notify_send(body: &str, expire_ms: u32) {
+    let _ = Command::new("notify-send")
+        .arg(format!("--replace-id={NOTIFY_REPLACE_ID}"))
+        .arg(format!("--expire-time={expire_ms}"))
+        .arg("wallrack index")
+        .arg(body)
+        .status();
+}
 use crate::daemon::Daemon;
 use crate::entry::{Entry, Index};
 use crate::favorites::Favorites;
@@ -144,7 +198,8 @@ enum DaemonCmd {
 }
 
 pub fn run() -> Result<ExitCode> {
-    let cli = Cli::parse();
+    let matches = Cli::command().styles(make_clap_styles()).get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     let paths = Paths::discover()?;
     let config = Config::load(&paths)?;
 
@@ -172,22 +227,50 @@ fn cmd_index(paths: &Paths, config: &Config, integration: &str) -> Result<ExitCo
     } else {
         vec![integrations::by_name(integration)?]
     };
-    for integ in targets {
+
+    let in_rofi = is_rofi_context();
+    let c = C::stderr();
+    let multi = targets.len() > 1;
+    let mut total = 0usize;
+
+    for integ in &targets {
+        if in_rofi {
+            notify_send(&format!("Indexing {}…", integ.name()), 0);
+        }
         let started = std::time::Instant::now();
         match integ.index(paths, config) {
             Ok(idx) => {
+                let n = idx.entries.len();
+                total += n;
+                let elapsed = started.elapsed().as_secs_f32();
                 eprintln!(
-                    "wallrack: {} indexed {} entries in {:.2}s",
-                    integ.name(),
-                    idx.entries.len(),
-                    started.elapsed().as_secs_f32()
+                    "wallrack: {}{}{} indexed {}{}{} entries in {:.2}s",
+                    c.yellow, integ.name(), c.reset,
+                    c.green, n, c.reset,
+                    elapsed,
                 );
+                if in_rofi && multi {
+                    notify_send(&format!("{}: {} entries ({:.1}s)", integ.name(), n, elapsed), 0);
+                }
             }
             Err(err) => {
-                eprintln!("wallrack: {} index failed: {err:#}", integ.name());
+                eprintln!("wallrack: {}{}{} index failed: {err:#}", c.red, integ.name(), c.reset);
+                if in_rofi {
+                    notify_send(&format!("{}: failed — {err}", integ.name()), 5000);
+                }
             }
         }
     }
+
+    if in_rofi {
+        let msg = if multi {
+            format!("Done — {} total entries", total)
+        } else {
+            format!("Done — {} entries indexed", total)
+        };
+        notify_send(&msg, 4000);
+    }
+
     Ok(ExitCode::SUCCESS)
 }
 
@@ -768,23 +851,60 @@ fn cmd_daemon(paths: &Paths, config: &Config, cmd: DaemonCmd) -> Result<ExitCode
 // ───── info ──────────────────────────────────────────────────────────────────
 
 fn cmd_info(paths: &Paths, config: &Config) -> Result<ExitCode> {
-    println!("config: {}", paths.config_file().display());
-    println!("cache:  {}", paths.cache_dir().display());
-    println!("integrations:");
-    for name in integrations::names() {
-        let idx = paths.index_file(name);
-        let present = idx.exists();
-        println!("  {name:<10} index={} ({})",
-            if present { "ok" } else { "missing" },
-            idx.display());
+    let c = C::stdout();
+
+    println!("{}config:{} {}", c.bold, c.reset, paths.config_file().display());
+    println!("{}cache:{}  {}", c.bold, c.reset, paths.cache_dir().display());
+
+    // Collect per-integration indexes (best-effort; missing index → 0 entries).
+    let mut total_entries: usize = 0;
+    let mut integration_indexes: Vec<(&'static str, Option<Index>)> = Vec::new();
+    for integ in integrations::all() {
+        let idx = integ.read_index(paths).ok();
+        if let Some(ref i) = idx {
+            total_entries += i.entries.len();
+        }
+        integration_indexes.push((integ.name(), idx));
     }
-    println!("wallpaper dirs:");
+
+    println!("{}index:{} {}{}{} total entries", c.bold, c.reset, c.green, total_entries, c.reset);
+    println!("{}integrations:{}", c.bold, c.reset);
+    for (name, idx) in &integration_indexes {
+        let file = paths.index_file(name);
+        match idx {
+            Some(i) => println!(
+                "  {}{:<12}{}  {}{:>6}{} entries  {}({}){}",
+                c.cyan, name, c.reset,
+                c.green, i.entries.len(), c.reset,
+                c.dim, file.display(), c.reset,
+            ),
+            None => println!(
+                "  {}{:<12}{}  {}missing{}      {}({}){}",
+                c.yellow, name, c.reset,
+                c.red, c.reset,
+                c.dim, file.display(), c.reset,
+            ),
+        }
+    }
+
+    // Per-wallpaper-dir counts from the wallpaper integration index.
+    let wp_entries: Vec<_> = integration_indexes.iter()
+        .find(|(n, _)| *n == "wallpaper")
+        .and_then(|(_, idx)| idx.as_ref())
+        .map(|i| &i.entries[..])
+        .unwrap_or(&[])
+        .to_vec();
+
+    println!("{}wallpaper dirs:{}", c.bold, c.reset);
     for d in config.wallpaper_dirs() {
-        println!("  {}", d.display());
+        let count = wp_entries.iter()
+            .filter(|e| e.source.starts_with(&d))
+            .count();
+        println!("  {}{:>6}{} entries  {}", c.green, count, c.reset, d.display());
     }
     if let Some(d) = config.wallpaper_steam_dir() {
-        println!("wallpaper steam dir: {}", d.display());
+        println!("{}wallpaper steam dir:{} {}", c.bold, c.reset, d.display());
     }
-    println!("WE workshop dir: {}", config.we_workshop_dir().display());
+    println!("{}WE workshop dir:{} {}", c.bold, c.reset, config.we_workshop_dir().display());
     Ok(ExitCode::SUCCESS)
 }
