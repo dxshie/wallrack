@@ -23,18 +23,16 @@
 #   Alt+3  kb-custom-3   toggle favorite on the highlighted entry
 #   Alt+4  kb-custom-4   switch between all wallpapers and favorites view
 #   Alt+5  kb-custom-5   edit tags on the highlighted entry (add/remove)
+#   Alt+6  kb-custom-6   cycle rating filter (All → Mature → Questionable → Everyone)
 #   Alt+0  kb-custom-10  rebuild the index (current integration)
 
 set -o pipefail
 
 NOTIFY_OPTIONS=(-i "$DOTFILES/logos/we.png" "Wallrack")
 
-# Rofi appends the highlighted entry on every re-invocation; persist the
-# initial rating arg so subsequent calls can find it.
-if [[ -z "$ROFI_RETV" || "$ROFI_RETV" == "0" ]]; then
-  filter_rating="${1:-All}"
-  wallrack state set rating "$filter_rating" >/dev/null
-fi
+# Rofi appends the highlighted entry on every re-invocation; we just want
+# the last positional arg (the highlighted row's display text). The rating
+# filter is no longer launched-with, it's cycled with Alt+6.
 selection="${*: -1}"
 
 picker_mode=$(wallrack state get picker_mode 2>/dev/null || echo wallpaper)
@@ -363,6 +361,22 @@ case "$ROFI_RETV" in
     fi
     wallrack state set tag_edit_target "$target" >/dev/null
     render_tag_editor
+    exit 0
+    ;;
+  15)
+    # kb-custom-6 (Alt+6): cycle the rating filter
+    # All → Mature → Questionable → Everyone → All.
+    current=$(wallrack state get rating 2>/dev/null || echo All)
+    case "$current" in
+      All)          next=Mature ;;
+      Mature)       next=Questionable ;;
+      Questionable) next=Everyone ;;
+      Everyone)     next=All ;;
+      *)            next=All ;;
+    esac
+    wallrack state set rating "$next" >/dev/null
+    notify-send "${NOTIFY_OPTIONS[@]}" "Rating filter: $next"
+    wallrack view
     exit 0
     ;;
   19)

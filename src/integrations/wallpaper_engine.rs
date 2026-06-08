@@ -1,3 +1,7 @@
+//! Wallpaper Engine integration — applies live wallpapers via
+//! `linux-wallpaperengine`. Indexes each `<workshop>/<id>/project.json` as a
+//! single entry, applied as a whole (no per-image drilling).
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -11,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::Config;
 use crate::entry::{Entry, Index};
 use crate::integrations::Integration;
+use crate::integrations::backend;
 use crate::paths::{Paths, atomic_write};
 
 pub const NAME: &str = "we";
@@ -31,6 +36,11 @@ struct ProjectJson {
 
 impl Integration for WallpaperEngineIntegration {
     fn name(&self) -> &'static str { NAME }
+    fn label(&self) -> &'static str { "WE" }
+
+    // linux-wallpaperengine applies the whole project, so there is no
+    // meaningful "drill into a subfolder" operation.
+    fn supports_drill(&self) -> bool { false }
 
     fn index(&self, paths: &Paths, config: &Config) -> Result<Index> {
         paths.ensure_integration(NAME)?;
@@ -70,7 +80,7 @@ impl Integration for WallpaperEngineIntegration {
         Ok(index)
     }
 
-    fn apply(&self, entry: &Entry, monitor: &str, paths: &Paths) -> Result<()> {
+    fn apply(&self, entry: &Entry, monitor: &str, paths: &Paths, config: &Config) -> Result<()> {
         if monitor.is_empty() {
             return Err(anyhow!("apply: no monitor given"));
         }
@@ -81,31 +91,19 @@ impl Integration for WallpaperEngineIntegration {
             .or_else(|| folder.file_name().map(|s| s.to_string_lossy().to_string()))
             .ok_or_else(|| anyhow!("WE entry missing workshop id"))?;
 
-        // Kill any running linux-wallpaperengine, then relaunch.
+        // Replace any running linux-wallpaperengine before relaunching.
         let _ = Command::new("pkill").arg("-f").arg("linux-wallpaperengine").status();
         wait_we_gone();
 
-        // setsid + uwsm to detach. Use `nohup` semantics via setsid.
-        let mut cmd = Command::new("setsid");
-        cmd.arg("uwsm")
-            .arg("app")
-            .arg("--")
-            .arg("linux-wallpaperengine")
-            .arg("--screenshot-delay").arg("1000")
-            .arg("--disable-web-security")
-            .arg("--autoplay-policy=no-user-gesture-required")
-            .arg("--no-audio-processing")
-            .arg("--disable-parallax")
-            .arg("--silent")
-            .arg("--no-fullscreen-pause")
-            .arg("--scaling").arg("fill")
-            .arg("--screen-root").arg(monitor)
-            .arg("--bg").arg(&workshop_id);
-
-        // Detach: ignore the child handle, redirect stdio.
-        use std::process::Stdio;
-        cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-        cmd.spawn().context("spawn linux-wallpaperengine")?;
+        let folder_str = folder.to_string_lossy();
+        backend::run_apply_detached(
+            &self.merged_backend(config),
+            &[
+                ("monitor", monitor),
+                ("folder", folder_str.as_ref()),
+                ("workshop_id", workshop_id.as_str()),
+            ],
+        )?;
 
         update_monitor_state(paths, monitor, &workshop_id)?;
         Ok(())
@@ -114,6 +112,26 @@ impl Integration for WallpaperEngineIntegration {
     fn watch_dirs(&self, config: &Config) -> Vec<PathBuf> {
         let d = config.we_workshop_dir();
         if d.is_dir() { vec![d] } else { vec![] }
+    }
+
+    fn backend<'a>(&self, config: &'a Config) -> &'a crate::config::BackendConfig {
+        &config.wallpaper_engine.backend
+    }
+
+    fn default_backend(&self) -> crate::config::BackendConfig {
+        crate::config::BackendConfig {
+            // The default apply matches the previous hardcoded
+            // linux-wallpaperengine invocation, minus the leading `setsid`
+            // since `run_apply_detached` already wraps in one. Users on
+            // non-uwsm setups can drop `uwsm app --` via config.
+            apply_cmd: Some(
+                r#"uwsm app -- linux-wallpaperengine --screenshot-delay 1000 --disable-web-security --autoplay-policy=no-user-gesture-required --no-audio-processing --disable-parallax --silent --no-fullscreen-pause --scaling fill --screen-root "{{monitor}}" --bg "{{workshop_id}}""#.into(),
+            ),
+            monitors_cmd: Some(r#"hyprctl monitors | awk '/^Monitor / {print $2}'"#.into()),
+            // WE tracks its own per-monitor state — current_image_cmd is
+            // unused for this integration.
+            current_image_cmd: None,
+        }
     }
 }
 

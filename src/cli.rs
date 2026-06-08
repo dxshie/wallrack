@@ -3,10 +3,62 @@ use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
 use anyhow::{Context, Result, anyhow};
-use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
-use serde::Deserialize;
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
 use crate::config::Config;
+
+// ───── integration arg ───────────────────────────────────────────────────────
+
+/// CLI surface for selecting an integration. The string values match the
+/// on-disk integration keys used everywhere else (cache dirs, state, the
+/// picker shell), so we can hand `as_str()` straight to `integrations::by_name`.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum IntegrationArg {
+    /// Plain images from `wallpaper.dirs` in config.toml.
+    #[value(name = "wallpaper")]
+    Wallpaper,
+    /// Images extracted from Wallpaper Engine workshop projects.
+    #[value(name = "we_image")]
+    WeImage,
+    /// Live Wallpaper Engine projects (linux-wallpaperengine).
+    #[value(name = "we")]
+    We,
+}
+
+impl IntegrationArg {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Wallpaper => "wallpaper",
+            Self::WeImage => "we_image",
+            Self::We => "we",
+        }
+    }
+}
+
+/// Like [`IntegrationArg`] but with an extra `all` value for `wallrack index`,
+/// which can rebuild every integration in one go.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum IndexTarget {
+    /// Rebuild every integration's index.
+    All,
+    #[value(name = "wallpaper")]
+    Wallpaper,
+    #[value(name = "we_image")]
+    WeImage,
+    #[value(name = "we")]
+    We,
+}
+
+impl IndexTarget {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Wallpaper => "wallpaper",
+            Self::WeImage => "we_image",
+            Self::We => "we",
+        }
+    }
+}
 
 // ───── terminal color helpers ────────────────────────────────────────────────
 
@@ -99,13 +151,13 @@ struct Cli {
 enum Cmd {
     /// Build the on-disk index for one or all integrations.
     Index {
-        #[arg(long, default_value = "all")]
-        integration: String,
+        #[arg(long, value_enum, default_value_t = IndexTarget::All)]
+        integration: IndexTarget,
     },
     /// Emit wallpapers in the requested format.
     List {
-        #[arg(long, default_value = "wallpaper")]
-        integration: String,
+        #[arg(long, value_enum, default_value_t = IntegrationArg::Wallpaper)]
+        integration: IntegrationArg,
         #[arg(long, default_value = "rofi")]
         format: Format,
         #[arg(long)]
@@ -133,10 +185,17 @@ enum Cmd {
     },
     /// List unique tags for the active integration (uses state if --integration omitted).
     Tags {
-        #[arg(long)]
-        integration: Option<String>,
+        #[arg(long, value_enum)]
+        integration: Option<IntegrationArg>,
         #[arg(long, default_value = "rofi")]
         format: Format,
+    },
+    /// Edit user tag overrides on individual entries. Layered over native
+    /// (project.json) tags at read time, so this works even for plain
+    /// wallpapers that have no built-in tags.
+    Tag {
+        #[command(subcommand)]
+        cmd: TagCmd,
     },
     /// Favorites management.
     Favorites {
@@ -150,8 +209,8 @@ enum Cmd {
     },
     /// List monitors with their current wallpapers, in the requested format.
     Monitors {
-        #[arg(long)]
-        integration: Option<String>,
+        #[arg(long, value_enum)]
+        integration: Option<IntegrationArg>,
         /// Entry id (image path / WE folder) being applied — included in the
         /// rofi `info` field so the shell can route the selection.
         #[arg(long)]
@@ -161,8 +220,8 @@ enum Cmd {
     },
     /// Apply an entry to a monitor.
     Apply {
-        #[arg(long)]
-        integration: Option<String>,
+        #[arg(long, value_enum)]
+        integration: Option<IntegrationArg>,
         #[arg(long)]
         monitor: String,
         /// Entry id — image path or WE folder path.
@@ -181,32 +240,102 @@ enum Cmd {
 enum FavoritesCmd {
     /// List favorited entries.
     List {
-        #[arg(long)]
-        integration: Option<String>,
+        #[arg(long, value_enum)]
+        integration: Option<IntegrationArg>,
         #[arg(long, default_value = "json")]
         format: Format,
     },
     Add {
-        #[arg(long)]
-        integration: String,
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
         id: String,
     },
     Remove {
-        #[arg(long)]
-        integration: String,
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
         id: String,
     },
     /// Toggle favorite. Prints "added" or "removed".
     Toggle {
-        #[arg(long)]
-        integration: String,
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
         id: String,
     },
     /// Test whether an id is favorited. Exit 0 if yes, 1 if no.
     Is {
-        #[arg(long)]
-        integration: String,
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
         id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum TagCmd {
+    /// Add a tag to the effective set for this entry (and to the catalog).
+    Add {
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
+        #[arg(long)]
+        id: String,
+        tag: String,
+    },
+    /// Remove a tag from THIS entry (cancels a prior add or hides a native
+    /// tag). Use `tag delete` to drop a tag from every entry at once.
+    Remove {
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
+        #[arg(long)]
+        id: String,
+        tag: String,
+    },
+    /// Replace the effective tag set with the given list.
+    Set {
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
+        #[arg(long)]
+        id: String,
+        /// Tags to set. Pass repeated `--tag VALUE` for each, or none to
+        /// effectively clear all native tags.
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+    },
+    /// Drop any user overrides for this entry; falls back to native tags.
+    Clear {
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
+        #[arg(long)]
+        id: String,
+    },
+    /// Print the entry's effective tags (one per line).
+    Show {
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
+        #[arg(long)]
+        id: String,
+    },
+    /// List the catalog of tags available for the integration. Combines
+    /// native tags collected at index time with any manually-created ones.
+    Available {
+        #[arg(long, value_enum)]
+        integration: Option<IntegrationArg>,
+        #[arg(long, default_value = "rofi")]
+        format: Format,
+    },
+    /// Register a new tag in the catalog without assigning it yet.
+    Create {
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
+        tag: String,
+    },
+    /// Remove a tag from the catalog entirely. By default this is a soft
+    /// delete (entries that already have the tag keep it); pass `--cascade`
+    /// to also strip the tag from every entry via overrides.
+    Delete {
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
+        #[arg(long)]
+        cascade: bool,
+        tag: String,
     },
 }
 
@@ -246,7 +375,7 @@ pub fn run() -> Result<ExitCode> {
     let config = Config::load(&paths)?;
 
     match cli.cmd {
-        Cmd::Index { integration } => cmd_index(&paths, &config, &integration),
+        Cmd::Index { integration } => cmd_index(&paths, &config, integration.as_str()),
         Cmd::List {
             integration,
             format,
@@ -258,7 +387,7 @@ pub fn run() -> Result<ExitCode> {
             group,
         } => cmd_list(
             &paths,
-            &integration,
+            integration.as_str(),
             format,
             favorites,
             tag,
@@ -271,19 +400,32 @@ pub fn run() -> Result<ExitCode> {
         Cmd::Tags {
             integration,
             format,
-        } => cmd_tags(&paths, integration.as_deref(), format),
+        } => cmd_tags(&paths, integration.map(|i| i.as_str()), format),
+        Cmd::Tag { cmd } => cmd_tag(&paths, cmd),
         Cmd::Favorites { cmd } => cmd_favorites(&paths, cmd),
         Cmd::State { cmd } => cmd_state(&paths, cmd),
         Cmd::Monitors {
             integration,
             target,
             format,
-        } => cmd_monitors(&paths, integration.as_deref(), target.as_deref(), format),
+        } => cmd_monitors(
+            &paths,
+            &config,
+            integration.map(|i| i.as_str()),
+            target.as_deref(),
+            format,
+        ),
         Cmd::Apply {
             integration,
             monitor,
             target,
-        } => cmd_apply(&paths, integration.as_deref(), &monitor, &target),
+        } => cmd_apply(
+            &paths,
+            &config,
+            integration.map(|i| i.as_str()),
+            &monitor,
+            &target,
+        ),
         Cmd::Daemon { cmd } => cmd_daemon(&paths, &config, cmd),
         Cmd::Info => cmd_info(&paths, &config),
     }
@@ -302,6 +444,10 @@ fn cmd_index(paths: &Paths, config: &Config, integration: &str) -> Result<ExitCo
     let c = C::stderr();
     let multi = targets.len() > 1;
     let mut total = 0usize;
+
+    let catalog_path = paths.tag_catalog_file();
+    let mut catalog = crate::tags::TagCatalog::load(&catalog_path)?;
+    let mut catalog_dirty = false;
 
     for integ in &targets {
         if in_rofi {
@@ -323,6 +469,17 @@ fn cmd_index(paths: &Paths, config: &Config, integration: &str) -> Result<ExitCo
                     c.reset,
                     elapsed,
                 );
+                // Pull native tags into the catalog so the picker can suggest
+                // them without re-reading the whole index. Manually-created
+                // catalog entries persist because we union, never replace.
+                let before = catalog.list(integ.name()).len();
+                catalog.extend(
+                    integ.name(),
+                    idx.entries.iter().flat_map(|e| e.tags.iter().cloned()),
+                );
+                if catalog.list(integ.name()).len() != before {
+                    catalog_dirty = true;
+                }
                 if in_rofi && multi {
                     notify_send(
                         &format!("{}: {} entries ({:.1}s)", integ.name(), n, elapsed),
@@ -342,6 +499,11 @@ fn cmd_index(paths: &Paths, config: &Config, integration: &str) -> Result<ExitCo
                 }
             }
         }
+    }
+
+    if catalog_dirty {
+        catalog.save(&catalog_path)
+            .with_context(|| format!("save tag catalog {}", catalog_path.display()))?;
     }
 
     if in_rofi {
@@ -424,6 +586,12 @@ fn cmd_list(
     let stdout = io::stdout().lock();
     let mut out = BufWriter::new(stdout);
 
+    if filtered.is_empty() && folder.is_none() {
+        emit_empty_view(&mut out, &integration, favorites_only, tag.as_deref(), format)?;
+        out.flush()?;
+        return Ok(ExitCode::SUCCESS);
+    }
+
     if let Some(folder_path) = folder.as_deref() {
         emit_drill_view(
             &mut out,
@@ -435,7 +603,7 @@ fn cmd_list(
             tag.as_deref(),
             format,
         )?;
-    } else if group && integration == "wallpaper" {
+    } else if group && integ.supports_drill() {
         emit_grouped_view(
             &mut out,
             &filtered,
@@ -511,16 +679,19 @@ fn emit_flat<W: Write>(
     tag_filter: Option<&str>,
     format: Format,
 ) -> Result<()> {
-    // Wallpaper entries carry their id explicitly so the shell doesn't have
-    // to recover it by string-splitting the display line — file paths like
-    // "foo - bar.jpg" would break that on the last " - ".
+    // Image-based entries carry their id explicitly so the shell doesn't
+    // have to recover it by string-splitting the display line — file paths
+    // like "foo - bar.jpg" would break that on the last " - ". The `we`
+    // integration uses folder paths (no " - " in workshop ids) so the
+    // string-split fallback is safe and we don't override its info.
+    let is_image = integration == "wallpaper" || integration == "we_image";
     let rows: Vec<Row<'_>> = entries
         .iter()
         .map(|e| Row::Entry {
             entry: e,
             favorite: favorites.is_favorite(&e.integration, &e.id),
             label: None,
-            info: if integration == "wallpaper" {
+            info: if is_image {
                 Some(format!("image:{}", e.id))
             } else {
                 None
@@ -625,16 +796,62 @@ fn emit_grouped_view<W: Write>(
     )
 }
 
+/// Render a placeholder row when the current view would otherwise produce
+/// zero entries. Rofi exits as soon as the script writes no rows, which
+/// closes the picker abruptly — typically right after Alt+1 lands on an
+/// integration that's unindexed or has an empty config. This keeps rofi
+/// open and steers the user toward the keys that fix it.
+fn emit_empty_view<W: Write>(
+    w: &mut W,
+    integration: &str,
+    favorites_only: bool,
+    tag_filter: Option<&str>,
+    format: Format,
+) -> Result<()> {
+    let label = integrations::by_name(integration)
+        .ok()
+        .map(|i| i.label().to_string())
+        .unwrap_or_else(|| integration.to_string());
+    let index_empty = !favorites_only && tag_filter.map(|t| t.is_empty()).unwrap_or(true);
+    let reason = if favorites_only {
+        format!("No favorited {label} yet — Alt+3 on an entry to favorite it")
+    } else if tag_filter.map(|t| !t.is_empty()).unwrap_or(false) {
+        format!("No {label} match the current tag filter — Alt+2 to clear")
+    } else {
+        format!("No {label} indexed")
+    };
+    // Only suggest config edits when the *index itself* is empty — for an
+    // empty favorites or tag-filter view, the index might be fine; the
+    // filter is just too narrow.
+    let hint = if index_empty {
+        match integration {
+            "wallpaper" => " — set `wallpaper.dirs` in config.toml then press Alt+0",
+            "we_image" | "we" => " — check `workshop_dir` in config.toml then press Alt+0",
+            _ => " — press Alt+0 to refresh or Alt+1 to switch mode",
+        }
+    } else {
+        ""
+    };
+    let row = Row::Control {
+        label: format!("{reason}{hint}"),
+        info: "noop:empty".to_string(),
+        icon: None,
+    };
+    let hints = view_hints_for(integration, None, favorites_only, tag_filter);
+    write_rows(w, &[row], &hints, format)
+}
+
 fn view_hints_for(
     integration: &str,
     drill: Option<&str>,
     favorites_only: bool,
     tag_filter: Option<&str>,
 ) -> ViewHints {
-    let base = match (integration, drill) {
-        (_, Some(d)) => folder_label(d),
-        ("we", _) => "WE".to_string(),
-        _ => "Wallpapers".to_string(),
+    let base = match drill {
+        Some(d) => folder_label(d),
+        None => integrations::by_name(integration)
+            .map(|i| i.label().to_string())
+            .unwrap_or_else(|_| "Wallpapers".to_string()),
     };
     let mut prompt = if favorites_only {
         format!("★ {base}")
@@ -648,7 +865,7 @@ fn view_hints_for(
     }
     ViewHints {
         prompt,
-        message: "Alt+1 mode | Alt+2 tag | Alt+3 fav | Alt+4 view | Alt+0 refresh".to_string(),
+        message: "Alt+1 mode | Alt+2 tag | Alt+3 fav | Alt+4 view | Alt+5 edit tags | Alt+0 refresh".to_string(),
         use_hot_keys: true,
     }
 }
@@ -713,6 +930,14 @@ fn cmd_view(paths: &Paths, format: Format) -> Result<ExitCode> {
     let stdout = io::stdout().lock();
     let mut out = BufWriter::new(stdout);
 
+    // Empty top-level view → render a placeholder row so rofi doesn't exit.
+    // The drill view always carries a "← Back" row so it can stand on its own.
+    if filtered.is_empty() && folder_opt.is_none() {
+        emit_empty_view(&mut out, &integration, favorites_only, tag, format)?;
+        out.flush()?;
+        return Ok(ExitCode::SUCCESS);
+    }
+
     if let Some(folder_path) = folder_opt {
         emit_drill_view(
             &mut out,
@@ -724,10 +949,10 @@ fn cmd_view(paths: &Paths, format: Format) -> Result<ExitCode> {
             tag,
             format,
         )?;
-    } else if drill.is_empty() && integration == "wallpaper" && !favorites_only {
-        // Grouping collapses workshop subfolders into folder rows, which is
-        // wrong for the favorites view: a favorite is an individual image and
-        // Alt+3 on a folder row can't recover the real entry id.
+    } else if drill.is_empty() && integ.supports_drill() && !favorites_only {
+        // Grouping collapses subfolders into folder rows, which is wrong for
+        // the favorites view: a favorite is an individual image and Alt+3 on
+        // a folder row can't recover the real entry id.
         emit_grouped_view(
             &mut out,
             &filtered,
@@ -827,6 +1052,126 @@ fn cmd_tags(paths: &Paths, integration: Option<&str>, format: Format) -> Result<
     Ok(ExitCode::SUCCESS)
 }
 
+// ───── tag overrides ─────────────────────────────────────────────────────────
+
+fn cmd_tag(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
+    let tags_path = paths.tags_file();
+    let catalog_path = paths.tag_catalog_file();
+    let mut overrides = crate::tags::TagOverrides::load(&tags_path)?;
+    match cmd {
+        TagCmd::Add { integration, id, tag } => {
+            overrides.add(integration.as_str(), &id, &tag);
+            overrides.save(&tags_path)?;
+            // Newly-added tags should be immediately suggestable in the
+            // picker, so reflect them in the catalog right away rather than
+            // waiting for the next re-index.
+            let mut catalog = crate::tags::TagCatalog::load(&catalog_path)?;
+            if catalog.add(integration.as_str(), &tag) {
+                catalog.save(&catalog_path)?;
+            }
+        }
+        TagCmd::Remove { integration, id, tag } => {
+            overrides.remove(integration.as_str(), &id, &tag);
+            overrides.save(&tags_path)?;
+        }
+        TagCmd::Set { integration, id, tags } => {
+            // Need the native tag set to compute a minimal override that
+            // survives index regeneration. If the entry isn't in the index
+            // yet, fall back to "no native tags" — the override just becomes
+            // pure additive.
+            let integ = integrations::by_name(integration.as_str())?;
+            let native: Vec<String> = match integ.read_index(paths) {
+                Ok(idx) => {
+                    // read_index already applies overrides; recover the
+                    // native tags by stripping this entry's current
+                    // overrides off the effective set we got back.
+                    let effective = idx.entries.iter().find(|e| e.id == id)
+                        .map(|e| e.tags.clone()).unwrap_or_default();
+                    let prior = overrides.get(integration.as_str(), &id).cloned().unwrap_or_default();
+                    // native = (effective ∪ prior.removed) \ prior.added
+                    let mut native: std::collections::BTreeSet<String> = effective.into_iter().collect();
+                    native.extend(prior.removed.iter().cloned());
+                    for added in &prior.added { native.remove(added); }
+                    native.into_iter().collect()
+                }
+                Err(_) => Vec::new(),
+            };
+            overrides.set(integration.as_str(), &id, &tags, &native);
+            overrides.save(&tags_path)?;
+            let mut catalog = crate::tags::TagCatalog::load(&catalog_path)?;
+            catalog.extend(integration.as_str(), tags.iter().cloned());
+            catalog.save(&catalog_path)?;
+        }
+        TagCmd::Clear { integration, id } => {
+            overrides.clear(integration.as_str(), &id);
+            overrides.save(&tags_path)?;
+        }
+        TagCmd::Show { integration, id } => {
+            let integ = integrations::by_name(integration.as_str())?;
+            let idx = integ.read_index(paths)?;
+            if let Some(entry) = idx.entries.iter().find(|e| e.id == id) {
+                for t in &entry.tags {
+                    println!("{t}");
+                }
+            } else {
+                return Err(anyhow!("entry not in index: {id}"));
+            }
+        }
+        TagCmd::Available { integration, format } => {
+            let integration: String = match integration {
+                Some(s) => s.as_str().to_string(),
+                None => {
+                    let state = State::load(&paths.state_file())?;
+                    state.get_or(state::keys::PICKER_MODE, "wallpaper").to_string()
+                }
+            };
+            let catalog = crate::tags::TagCatalog::load(&catalog_path)?;
+            let tags = catalog.list(&integration);
+            match format {
+                Format::Json => {
+                    let stdout = io::stdout().lock();
+                    serde_json::to_writer(stdout, &tags)?;
+                }
+                Format::Rofi => {
+                    for t in tags {
+                        println!("{t}");
+                    }
+                }
+            }
+        }
+        TagCmd::Create { integration, tag } => {
+            let mut catalog = crate::tags::TagCatalog::load(&catalog_path)?;
+            if catalog.add(integration.as_str(), &tag) {
+                catalog.save(&catalog_path)?;
+            }
+        }
+        TagCmd::Delete { integration, cascade, tag } => {
+            let mut catalog = crate::tags::TagCatalog::load(&catalog_path)?;
+            catalog.remove(integration.as_str(), &tag);
+            catalog.save(&catalog_path)?;
+            if cascade {
+                // Hide the tag on every entry that currently carries it —
+                // including native tags from project.json — by writing a
+                // `removed` override per affected entry.
+                let integ = integrations::by_name(integration.as_str())?;
+                if let Ok(idx) = integ.read_index(paths) {
+                    let mut touched = false;
+                    for entry in &idx.entries {
+                        if entry.tags.iter().any(|t| t == &tag) {
+                            overrides.remove(integration.as_str(), &entry.id, &tag);
+                            touched = true;
+                        }
+                    }
+                    if touched {
+                        overrides.save(&tags_path)?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 // ───── favorites ─────────────────────────────────────────────────────────────
 
 fn cmd_favorites(paths: &Paths, cmd: FavoritesCmd) -> Result<ExitCode> {
@@ -837,8 +1182,8 @@ fn cmd_favorites(paths: &Paths, cmd: FavoritesCmd) -> Result<ExitCode> {
             integration,
             format,
         } => {
-            let integration = match integration {
-                Some(s) => s,
+            let integration: String = match integration {
+                Some(s) => s.as_str().to_string(),
                 None => {
                     let state = State::load(&paths.state_file())?;
                     state
@@ -861,26 +1206,28 @@ fn cmd_favorites(paths: &Paths, cmd: FavoritesCmd) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         FavoritesCmd::Add { integration, id } => {
-            favorites.add(&integration, &id);
+            favorites.add(integration.as_str(), &id);
             favorites.save(&fav_path)?;
             Ok(ExitCode::SUCCESS)
         }
         FavoritesCmd::Remove { integration, id } => {
-            favorites.remove(&integration, &id);
+            favorites.remove(integration.as_str(), &id);
             favorites.save(&fav_path)?;
             Ok(ExitCode::SUCCESS)
         }
         FavoritesCmd::Toggle { integration, id } => {
-            let now_fav = favorites.toggle(&integration, &id);
+            let now_fav = favorites.toggle(integration.as_str(), &id);
             favorites.save(&fav_path)?;
             println!("{}", if now_fav { "added" } else { "removed" });
             Ok(ExitCode::SUCCESS)
         }
-        FavoritesCmd::Is { integration, id } => Ok(if favorites.is_favorite(&integration, &id) {
-            ExitCode::SUCCESS
-        } else {
-            ExitCode::from(1)
-        }),
+        FavoritesCmd::Is { integration, id } => {
+            Ok(if favorites.is_favorite(integration.as_str(), &id) {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            })
+        }
     }
 }
 
@@ -917,6 +1264,8 @@ fn cmd_state(paths: &Paths, cmd: StateCmd) -> Result<ExitCode> {
         StateCmd::ResetTransient => {
             state.remove(state::keys::DRILL_PATH);
             state.remove(state::keys::TAG_MODE);
+            state.remove(state::keys::TAG_EDIT_TARGET);
+            state.remove(state::keys::TAG_ADD_MODE);
             state.save(&state_path)?;
             Ok(ExitCode::SUCCESS)
         }
@@ -927,6 +1276,7 @@ fn cmd_state(paths: &Paths, cmd: StateCmd) -> Result<ExitCode> {
 
 fn cmd_monitors(
     paths: &Paths,
+    config: &Config,
     integration: Option<&str>,
     target: Option<&str>,
     format: Format,
@@ -941,7 +1291,12 @@ fn cmd_monitors(
         }
     };
 
-    let monitors = list_monitors()?;
+    let integ = integrations::by_name(&integration)?;
+    let merged = integ.merged_backend(config);
+    let monitors = integrations::backend::run_monitors(&merged)
+        .with_context(|| format!("list monitors for {integration}"))?;
+    let thumbs = current_thumbs(&integration, paths, config);
+
     let stdout = io::stdout().lock();
     let mut out = BufWriter::new(stdout);
 
@@ -950,7 +1305,7 @@ fn cmd_monitors(
             let list: Vec<_> = monitors
                 .iter()
                 .map(|m| {
-                    let icon = current_thumb_for_monitor(&integration, m, paths);
+                    let icon = thumbs.get(m);
                     serde_json::json!({ "name": m, "current_icon": icon })
                 })
                 .collect();
@@ -963,7 +1318,7 @@ fn cmd_monitors(
             // display text and the metadata block; subsequent pairs are
             // separated by \x1f — a second \0 hides everything after it.
             for m in &monitors {
-                let icon = current_thumb_for_monitor(&integration, m, paths);
+                let icon = thumbs.get(m);
                 out.write_all(m.as_bytes())?;
                 let mut wrote_meta = false;
                 if let Some(icon) = icon {
@@ -987,68 +1342,42 @@ fn cmd_monitors(
     Ok(ExitCode::SUCCESS)
 }
 
-#[derive(Debug, Deserialize)]
-struct HyprMonitor {
-    name: String,
-}
-
-fn list_monitors() -> Result<Vec<String>> {
-    let out = Command::new("hyprctl")
-        .arg("monitors")
-        .arg("-j")
-        .output()
-        .context("hyprctl monitors -j")?;
-    if !out.status.success() {
-        return Err(anyhow!("hyprctl exited with {}", out.status));
-    }
-    let mons: Vec<HyprMonitor> =
-        serde_json::from_slice(&out.stdout).context("parse hyprctl json")?;
-    Ok(mons.into_iter().map(|m| m.name).collect())
-}
-
-fn current_thumb_for_monitor(integration: &str, monitor: &str, paths: &Paths) -> Option<PathBuf> {
-    match integration {
-        "we" => {
-            let state = wallpaper_engine::read_monitor_state(paths);
-            let wid = state.get(monitor)?;
-            // Look up the WE entry by workshop id and use its preview.
-            let idx_path = paths.index_file("we");
-            let raw = std::fs::read_to_string(&idx_path).ok()?;
-            let idx: Index = serde_json::from_str(&raw).ok()?;
-            idx.entries
-                .into_iter()
-                .find(|e| e.workshop_id.as_deref() == Some(wid.as_str()))
-                .map(|e| e.thumb)
+/// Per-monitor current-wallpaper thumbnails. WE tracks its own state
+/// (linux-wallpaperengine has no introspection), the other integrations rely
+/// on the backend's optional `current_image_cmd`.
+fn current_thumbs(
+    integration: &str,
+    paths: &Paths,
+    config: &Config,
+) -> std::collections::HashMap<String, PathBuf> {
+    use std::collections::HashMap;
+    if integration == "we" {
+        let state = wallpaper_engine::read_monitor_state(paths);
+        if state.is_empty() {
+            return HashMap::new();
         }
-        "wallpaper" => {
-            // awww query lines look like
-            //   `: <monitor>: <details> currently displaying: image: <path>`
-            // Older swww output dropped the leading `: `, so trim it before
-            // matching the monitor prefix.
-            let out = Command::new("awww").arg("query").output().ok()?;
-            if !out.status.success() {
-                return None;
-            }
-            let text = String::from_utf8_lossy(&out.stdout);
-            for line in text.lines() {
-                let trimmed = line.trim_start_matches(|c: char| c == ':' || c == ' ');
-                let Some(rest) = trimmed.strip_prefix(&format!("{monitor}:")) else {
-                    continue;
-                };
-                if let Some(img) = rest.split("image:").nth(1) {
-                    return Some(PathBuf::from(img.trim()));
-                }
-            }
-            None
-        }
-        _ => None,
+        let idx_path = paths.index_file("we");
+        let Ok(raw) = std::fs::read_to_string(&idx_path) else { return HashMap::new() };
+        let Ok(idx) = serde_json::from_str::<Index>(&raw) else { return HashMap::new() };
+        let by_workshop: HashMap<String, PathBuf> = idx
+            .entries
+            .into_iter()
+            .filter_map(|e| e.workshop_id.map(|w| (w, e.thumb)))
+            .collect();
+        return state
+            .into_iter()
+            .filter_map(|(mon, wid)| by_workshop.get(&wid).cloned().map(|t| (mon, t)))
+            .collect();
     }
+    let Ok(integ) = integrations::by_name(integration) else { return HashMap::new() };
+    integrations::backend::run_current_image(&integ.merged_backend(config))
 }
 
 // ───── apply ─────────────────────────────────────────────────────────────────
 
 fn cmd_apply(
     paths: &Paths,
+    config: &Config,
     integration: Option<&str>,
     monitor: &str,
     target: &str,
@@ -1070,7 +1399,7 @@ fn cmd_apply(
         .find(|e| e.id == target)
         .cloned()
         .ok_or_else(|| anyhow!("entry not in index: {target}"))?;
-    integ.apply(&entry, monitor, paths)?;
+    integ.apply(&entry, monitor, paths, config)?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -1180,11 +1509,14 @@ fn cmd_info(paths: &Paths, config: &Config) -> Result<ExitCode> {
             d.display()
         );
     }
-    if let Some(d) = config.wallpaper_steam_dir() {
-        println!("{}wallpaper steam dir:{} {}", c.bold, c.reset, d.display());
-    }
     println!(
-        "{}WE workshop dir:{} {}",
+        "{}WE image workshop dir:{} {}",
+        c.bold,
+        c.reset,
+        config.we_image_workshop_dir().display()
+    );
+    println!(
+        "{}WE workshop dir:{}       {}",
         c.bold,
         c.reset,
         config.we_workshop_dir().display()

@@ -2,13 +2,24 @@
 
 A picker-agnostic wallpaper manager. Indexes plain image directories and Steam
 Workshop content (image wallpapers + Wallpaper Engine projects), generates
-thumbnails, tracks favorites/tags/ratings, persists picker state, applies
-wallpapers to specific monitors, and optionally watches sources for changes
-via a daemon.
+thumbnails, tracks favorites/tags/ratings (including user tag overrides),
+persists picker state, applies wallpapers to specific monitors, and optionally
+watches sources for changes via a daemon.
 
 Output is structured (JSON or rofi script-mode) so any frontend — rofi, fuzzel,
 walker, wofi, a TUI, a desktop widget — can drive it. A reference rofi
 frontend ships in this repo, but is not required.
+
+## Integrations
+
+Three independent integrations, each with its own index, favorites bucket,
+tag overrides, and per-integration backend commands:
+
+| Key         | What it indexes                                          | Drilling | Applies via                |
+| ----------- | -------------------------------------------------------- | -------- | -------------------------- |
+| `wallpaper` | Plain images in `wallpaper.dirs`                         | yes      | image backend (e.g. swww)  |
+| `we_image`  | Images extracted from Wallpaper Engine workshop projects | yes      | image backend (e.g. swww)  |
+| `we`        | Wallpaper Engine projects, live                          | no       | `linux-wallpaperengine`    |
 
 ## Demo
 
@@ -31,12 +42,20 @@ frontend ships in this repo, but is not required.
 
 ## Requirements
 
+The compositor/wallpaper daemon side is fully configurable per integration
+(see [Per-integration backend commands](#per-integration-backend-commands)).
+The list below covers the built-in defaults — substitute your own commands in
+config to use a different stack.
+
 **Hard**
 
-- A wallpaper backend for at least one integration:
-  - `wallpaper` integration → [awww](https://github.com/LGFae/swww) or `swww`
-  - `we` integration → [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine)
-- `hyprctl` — used to enumerate monitors when applying wallpapers.
+- A wallpaper backend for at least one integration you intend to use:
+  - `wallpaper` / `we_image` → an image-setting daemon (default: `awww` /
+    `swww`)
+  - `we` → [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine)
+- A way to enumerate monitors (default: `hyprctl` from Hyprland; override
+  with any command that prints monitor names line-by-line — `swaymsg`,
+  `xrandr`, `wlr-randr`, …).
 
 **Soft**
 
@@ -86,35 +105,121 @@ The flake exposes:
 
 ## Configuration
 
-First run writes a default config to `~/.config/wallrack/config.toml`:
+First run writes a default config to `~/.config/wallrack/config.toml`. The
+minimal sane config (the maintainer's reference setup, hyprland + awww, is
+baked in as defaults — you only set backend keys to override):
 
 ```toml
 [thumbnails]
 size = 256
 
 [wallpaper]
-dirs = []
-steam_workshop_dir = "~/.local/share/Steam/steamapps/workshop/content/431960"
+dirs = ["~/Pictures"]
+
+[wallpaper_engine_image]
+# workshop_dir = "~/.local/share/Steam/steamapps/workshop/content/431960"
+# falls back to wallpaper_engine.workshop_dir if unset
 
 [wallpaper_engine]
 workshop_dir = "~/.local/share/Steam/steamapps/workshop/content/431960"
 ```
 
-- `wallpaper.dirs` — plain image directories, recursive.
-- `wallpaper.steam_workshop_dir` — Workshop dir scanned for image-based
-  wallpapers. Defaults to the WE workshop dir if unset.
-- `wallpaper_engine.workshop_dir` — Workshop dir scanned for live WE projects.
+### Per-integration backend commands
 
-Cache and state live under `~/.cache/wallrack/` (index, thumbnails, favorites,
-picker state).
+Each integration has a `[<name>.backend]` section with three optional keys —
+unset values fall back to the hyprland + awww defaults shipped with the
+binary. Templates use `{{image}}`, `{{monitor}}`, `{{folder}}` and
+`{{workshop_id}}` (substituted as plain text and passed to `sh -c`, so quote
+yourself).
+
+```toml
+# Image-based integrations (wallpaper, we_image):
+[wallpaper.backend]
+apply_cmd         = 'swww img "{{image}}" --transition-type center -o "{{monitor}}"'
+monitors_cmd      = "hyprctl monitors | awk '/^Monitor / {print $2}'"
+current_image_cmd = "swww query | sed -nE 's/^([^:]+):.*image: (.+)$/\\1\\t\\2/p'"
+
+[wallpaper_engine_image.backend]
+apply_cmd = 'swww img "{{image}}" --transition-type center -o "{{monitor}}"'
+
+# Live WE projects — applied detached via setsid; pkill+wait happens around
+# the command, so the template just needs to launch linux-wallpaperengine.
+[wallpaper_engine.backend]
+apply_cmd = 'linux-wallpaperengine --silent --scaling fill --screen-root "{{monitor}}" --bg "{{workshop_id}}"'
+```
+
+Sample command sets for common stacks:
+
+```toml
+# hyprland + swww
+apply_cmd    = 'swww img "{{image}}" -o "{{monitor}}"'
+monitors_cmd = "hyprctl monitors | awk '/^Monitor / {print $2}'"
+
+# sway + swaybg (one bg process per output; users typically run a launcher
+# script that maps the monitor → process). Adapt to your setup.
+apply_cmd    = 'pkill -f "swaybg.*{{monitor}}"; swaybg -o "{{monitor}}" -i "{{image}}" -m fill &'
+monitors_cmd = "swaymsg -t get_outputs -r | jq -r '.[].name'"
+
+# X11 + feh
+apply_cmd    = 'feh --bg-fill "{{image}}"'
+monitors_cmd = "xrandr --listactivemonitors | awk 'NR>1 {print $4}'"
+```
+
+`current_image_cmd` is purely cosmetic — it powers the thumbnail next to each
+monitor in the monitor picker. Leave it unset to skip that feature.
+
+### Tags
+
+Native tags come from `project.json` for WE entries; plain wallpapers have
+none. wallrack maintains two related pieces of state:
+
+- **Per-entry overrides** (`~/.cache/wallrack/tags.json`) — added/removed
+  tag deltas layered on top of native tags every time the index is read.
+- **Catalog** (`~/.cache/wallrack/tag_catalog.json`) — the set of "tags
+  available to apply" per integration. Populated from native tags every time
+  you index, augmented by anything you `tag add` / `tag set` / `tag create`,
+  and used by the rofi picker to suggest existing tags in the add-tag prompt.
+
+Per-entry operations:
+
+```sh
+wallrack tag add    --integration=wallpaper --id=/path/to/img.jpg cyberpunk
+wallrack tag remove --integration=wallpaper --id=/path/to/img.jpg cyberpunk
+wallrack tag set    --integration=we_image  --id=/path/to/img.jpg --tag=neon --tag=night
+wallrack tag clear  --integration=wallpaper --id=/path/to/img.jpg
+wallrack tag show   --integration=wallpaper --id=/path/to/img.jpg
+```
+
+Catalog operations:
+
+```sh
+wallrack tag available --integration=wallpaper --format=json
+wallrack tag create    --integration=wallpaper cyberpunk            # declare without assigning
+wallrack tag delete    --integration=wallpaper cyberpunk            # soft delete (catalog only)
+wallrack tag delete    --integration=wallpaper --cascade cyberpunk  # also strip from every entry
+```
+
+`tag delete --cascade` writes a `removed` override for every entry that
+currently has the tag (including native tags from `project.json`), which is
+how native tags can be hidden — `tag clear` on those entries undoes it.
+
+Per-entry overrides survive re-indexing: added tags are stored as
+additive deltas, not as a frozen tag list, so a `project.json` update that
+introduces new native tags still surfaces them.
+
+Cache and state live under `~/.cache/wallrack/` (per-integration index,
+thumbnails, favorites, tag overrides, picker state).
 
 ## CLI
 
 ```sh
 wallrack index --integration=wallpaper   # build/refresh the index + thumbs
+wallrack index --integration=we_image    # the WE-image-scrape integration
+wallrack index --integration=we          # live WE projects
 wallrack list  --integration=we --format=json
 wallrack view  --format=json             # render the current view per persisted state
 wallrack tags  --integration=wallpaper --format=json
+wallrack tag   add --integration=wallpaper --id=/path/to/image.jpg foo  # per-entry override
 wallrack favorites toggle --integration=wallpaper /path/to/image.jpg
 wallrack monitors --integration=wallpaper --target=/path/to/image.jpg
 wallrack apply    --integration=wallpaper --monitor=DP-1 /path/to/image.jpg
@@ -161,10 +266,11 @@ changes, so frontends never have to trigger a manual rebuild.
 
 [`wallrack_rofi_picker.sh`](./picker/wallrack_rofi_picker.sh) is a rofi script-mode wrapper that
 drives wallrack — favorites, tag filter, drill-down, mode switch, monitor
-picker, optional matugen + mako theming. It's a complete working example,
-not the project's headline feature. See the comment block at the top of the
-script for keybindings and setup, and use it as a template if you want to
-build a frontend for a different launcher.
+picker, per-entry tag editing (Alt+5 spawns a nested rofi prompt to add or
+remove tags), optional matugen + mako theming. It's a complete working
+example, not the project's headline feature. See the comment block at the
+top of the script for keybindings and setup, and use it as a template if
+you want to build a frontend for a different launcher.
 
 ## Writing your own frontend
 

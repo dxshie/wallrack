@@ -47,6 +47,14 @@ impl Paths {
         self.cache_root.join("favorites.json")
     }
 
+    pub fn tags_file(&self) -> PathBuf {
+        self.cache_root.join("tags.json")
+    }
+
+    pub fn tag_catalog_file(&self) -> PathBuf {
+        self.cache_root.join("tag_catalog.json")
+    }
+
     pub fn state_file(&self) -> PathBuf {
         self.cache_root.join("state.json")
     }

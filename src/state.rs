@@ -65,10 +65,12 @@ impl State {
 // Typed accessors for the keys the picker uses. Keeping them in one place
 // avoids the "did I spell view_mode right?" class of bug.
 pub mod keys {
-    pub const PICKER_MODE: &str = "picker_mode";
-    pub const VIEW_MODE:   &str = "view_mode";
-    pub const DRILL_PATH:  &str = "drill_path";
-    pub const TAG_FILTER:  &str = "tag_filter";
-    pub const TAG_MODE:    &str = "tag_mode";
-    pub const RATING:      &str = "rating";
+    pub const PICKER_MODE:     &str = "picker_mode";
+    pub const VIEW_MODE:       &str = "view_mode";
+    pub const DRILL_PATH:      &str = "drill_path";
+    pub const TAG_FILTER:      &str = "tag_filter";
+    pub const TAG_MODE:        &str = "tag_mode";
+    pub const TAG_EDIT_TARGET: &str = "tag_edit_target";
+    pub const TAG_ADD_MODE:    &str = "tag_add_mode";
+    pub const RATING:          &str = "rating";
 }

@@ -9,6 +9,7 @@ mod integrations;
 mod output;
 mod paths;
 mod state;
+mod tags;
 mod thumbnail;
 
 fn main() -> ExitCode {

@@ -13,6 +13,8 @@ pub struct Config {
     #[serde(default)]
     pub wallpaper: WallpaperConfig,
     #[serde(default)]
+    pub wallpaper_engine_image: WallpaperEngineImageConfig,
+    #[serde(default)]
     pub wallpaper_engine: WallpaperEngineConfig,
 }
 
@@ -22,21 +24,59 @@ pub struct Thumbnails {
     pub size: u32,
 }
 
+/// Per-integration commands. Templates use `{{image}}`, `{{monitor}}`,
+/// `{{folder}}`, `{{workshop_id}}` placeholders — substituted as plain text
+/// and passed to `sh -c`, so users are responsible for quoting.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct WallpaperConfig {
-    /// Plain wallpaper directories (no project.json).
+pub struct BackendConfig {
+    /// Sets a wallpaper. Receives `{{image}}` / `{{folder}}` / `{{workshop_id}}`
+    /// and `{{monitor}}` depending on the integration.
     #[serde(default)]
-    pub dirs: Vec<String>,
-    /// Optional steam workshop dir to also pull image-based wallpapers from.
+    pub apply_cmd: Option<String>,
+    /// Lists monitors — must print one monitor name per line.
     #[serde(default)]
-    pub steam_workshop_dir: Option<String>,
+    pub monitors_cmd: Option<String>,
+    /// Optional. Prints currently-displayed wallpapers as
+    /// `<monitor>\t<path>` lines. When unset, the monitor picker simply
+    /// doesn't show current-wallpaper thumbs.
+    #[serde(default)]
+    pub current_image_cmd: Option<String>,
 }
 
+/// Plain wallpaper images from user-provided directories.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WallpaperConfig {
+    #[serde(default)]
+    pub dirs: Vec<String>,
+    #[serde(default)]
+    pub backend: BackendConfig,
+}
+
+/// Wallpaper Engine workshop folders scraped for image assets — applies them
+/// like a normal image wallpaper (not via linux-wallpaperengine).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WallpaperEngineImageConfig {
+    /// Workshop dir. When unset, falls back to `wallpaper_engine.workshop_dir`
+    /// since the typical setup uses the same source for both.
+    #[serde(default)]
+    pub workshop_dir: Option<String>,
+    #[serde(default)]
+    pub backend: BackendConfig,
+}
+
+/// Wallpaper Engine projects, applied via linux-wallpaperengine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WallpaperEngineConfig {
-    /// Path to Steam Workshop dir holding linux-wallpaperengine projects.
     #[serde(default = "default_we_workshop_dir")]
     pub workshop_dir: String,
+    #[serde(default)]
+    pub backend: BackendConfig,
+}
+
+impl Default for WallpaperEngineConfig {
+    fn default() -> Self {
+        Self { workshop_dir: default_we_workshop_dir(), backend: BackendConfig::default() }
+    }
 }
 
 impl Default for Thumbnails {
@@ -56,9 +96,8 @@ impl Default for Config {
         Self {
             thumbnails: Thumbnails::default(),
             wallpaper: WallpaperConfig::default(),
-            wallpaper_engine: WallpaperEngineConfig {
-                workshop_dir: default_we_workshop_dir(),
-            },
+            wallpaper_engine_image: WallpaperEngineImageConfig::default(),
+            wallpaper_engine: WallpaperEngineConfig::default(),
         }
     }
 }
@@ -85,14 +124,13 @@ impl Config {
         self.wallpaper.dirs.iter().map(|s| expand_home(s)).collect()
     }
 
-    /// Workshop dir for the wallpaper integration. Falls back to the WE
-    /// workshop dir when not explicitly set, since the typical setup uses
-    /// the same source for both — WE projects are scanned for image
-    /// wallpapers (wallpaper mode) AND for live wallpapers (WE mode).
-    pub fn wallpaper_steam_dir(&self) -> Option<PathBuf> {
-        match self.wallpaper.steam_workshop_dir.as_deref() {
-            Some(d) => Some(expand_home(d)),
-            None => Some(self.we_workshop_dir()),
+    /// Workshop dir for the we_image integration. Falls back to the WE
+    /// workshop dir when not explicitly set — the typical setup points both
+    /// at the same Steam workshop content folder.
+    pub fn we_image_workshop_dir(&self) -> PathBuf {
+        match self.wallpaper_engine_image.workshop_dir.as_deref() {
+            Some(d) => expand_home(d),
+            None => self.we_workshop_dir(),
         }
     }
 
