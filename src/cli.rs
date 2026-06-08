@@ -511,13 +511,20 @@ fn emit_flat<W: Write>(
     tag_filter: Option<&str>,
     format: Format,
 ) -> Result<()> {
+    // Wallpaper entries carry their id explicitly so the shell doesn't have
+    // to recover it by string-splitting the display line — file paths like
+    // "foo - bar.jpg" would break that on the last " - ".
     let rows: Vec<Row<'_>> = entries
         .iter()
         .map(|e| Row::Entry {
             entry: e,
             favorite: favorites.is_favorite(&e.integration, &e.id),
             label: None,
-            info: None,
+            info: if integration == "wallpaper" {
+                Some(format!("image:{}", e.id))
+            } else {
+                None
+            },
         })
         .collect();
     write_rows(
@@ -577,12 +584,15 @@ fn emit_grouped_view<W: Write>(
 
     for e in entries {
         if e.subfolder.is_empty() {
-            // Root-level: emit as individual entry.
+            // Root-level: emit as individual entry. `image:<id>` info makes
+            // the shell route to the monitor picker without parsing the
+            // display line — paths containing " - " would otherwise be
+            // mis-split.
             rows.push(Row::Entry {
                 entry: e,
                 favorite: favorites.is_favorite(&e.integration, &e.id),
                 label: None,
-                info: None,
+                info: Some(format!("image:{}", e.id)),
             });
         } else {
             // Nested: emit one entry per (workshop_id, subfolder).

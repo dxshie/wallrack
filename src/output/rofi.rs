@@ -56,9 +56,9 @@ pub fn write<W: Write>(w: &mut W, rows: &[Row<'_>], hints: &ViewHints) -> Result
                     w.write_all(&[SEP])?;
                     w.write_all(entry.thumb.to_string_lossy().as_bytes())?;
                 }
-                // Emit `info` only when the caller asked for it. Defaulting
-                // to entry.id breaks the shell's "no info ⇒ open monitor
-                // picker" convention for top-level wallpapers.
+                // Emit `info` only when the caller asked for it. The shell
+                // routes selections off this field, so callers encode the
+                // intended action (e.g. `image:<id>`, `folder:<path>`).
                 if let Some(info_str) = info {
                     w.write_all(&[if wrote_meta { SEP } else { NUL }])?;
                     write!(w, "info")?;
