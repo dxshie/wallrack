@@ -207,6 +207,30 @@ Per-entry overrides survive re-indexing: added tags are stored as
 additive deltas, not as a frozen tag list, so a `project.json` update that
 introduces new native tags still surfaces them.
 
+### Ratings
+
+Native ratings come from WE `project.json` (`contentrating` field: `Mature`,
+`Questionable`, `Everyone`). The picker filters on the active rating, which
+cycles via the Alt+6 keybinding through `All → Mature → Questionable →
+Everyone → All` (`All` = no filter).
+
+Per-entry rating overrides work the same way as tag overrides — stored in
+`~/.cache/wallrack/rating_overrides.json` and applied on every read. Use
+them to pin a rating on plain wallpapers (which have none natively) or to
+correct a misclassified WE entry:
+
+```sh
+wallrack rating set   --integration=wallpaper --id=/path/to/img.jpg Mature
+wallrack rating set   --integration=we_image  --id=/path/to/img.jpg All     # clear the rating
+wallrack rating clear --integration=wallpaper --id=/path/to/img.jpg          # drop override → native rating returns
+wallrack rating show  --integration=wallpaper --id=/path/to/img.jpg
+```
+
+`rating set <…> All` records an explicit "no rating" — the entry will pass
+the `Everyone` / `Questionable` / `Mature` filters but match `All`. Use
+`rating clear` to drop the override entirely so the native value (if any)
+shines through again.
+
 Cache and state live under `~/.cache/wallrack/` (per-integration index,
 thumbnails, favorites, tag overrides, picker state).
 

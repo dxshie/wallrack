@@ -197,6 +197,13 @@ enum Cmd {
         #[command(subcommand)]
         cmd: TagCmd,
     },
+    /// Edit per-entry rating overrides. Layered over native ratings (from
+    /// project.json) at read time. `All` clears the rating on an entry;
+    /// use `rating clear` to drop the override entirely.
+    Rating {
+        #[command(subcommand)]
+        cmd: RatingCmd,
+    },
     /// Favorites management.
     Favorites {
         #[command(subcommand)]
@@ -340,6 +347,33 @@ enum TagCmd {
 }
 
 #[derive(Subcommand)]
+enum RatingCmd {
+    /// Pin a rating on this entry.
+    Set {
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
+        #[arg(long)]
+        id: String,
+        #[arg(value_enum, ignore_case = true)]
+        rating: crate::rating::Rating,
+    },
+    /// Drop the override; the entry falls back to its native rating.
+    Clear {
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
+        #[arg(long)]
+        id: String,
+    },
+    /// Print the effective rating for this entry (empty if none).
+    Show {
+        #[arg(long, value_enum)]
+        integration: IntegrationArg,
+        #[arg(long)]
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum StateCmd {
     Get {
         key: String,
@@ -402,6 +436,7 @@ pub fn run() -> Result<ExitCode> {
             format,
         } => cmd_tags(&paths, integration.map(|i| i.as_str()), format),
         Cmd::Tag { cmd } => cmd_tag(&paths, cmd),
+        Cmd::Rating { cmd } => cmd_rating(&paths, cmd),
         Cmd::Favorites { cmd } => cmd_favorites(&paths, cmd),
         Cmd::State { cmd } => cmd_state(&paths, cmd),
         Cmd::Monitors {
@@ -865,7 +900,7 @@ fn view_hints_for(
     }
     ViewHints {
         prompt,
-        message: "Alt+1 mode | Alt+2 tag | Alt+3 fav | Alt+4 view | Alt+5 edit tags | Alt+0 refresh".to_string(),
+        message: "Alt+1 mode | Alt+2 tag | Alt+3 fav | Alt+4 view | Alt+5 edit tags | Alt+6 rating | Alt+0 refresh".to_string(),
         use_hot_keys: true,
     }
 }
@@ -891,6 +926,18 @@ fn cmd_view(paths: &Paths, format: Format) -> Result<ExitCode> {
     let tag_filter = state.get_or(state::keys::TAG_FILTER, "").to_string();
     let rating = state.get_or(state::keys::RATING, "").to_string();
     let tag_mode = state.get_or(state::keys::TAG_MODE, "").to_string();
+    let tag_edit_target = state.get_or(state::keys::TAG_EDIT_TARGET, "").to_string();
+    let tag_add_mode = state.get_or(state::keys::TAG_ADD_MODE, "").to_string();
+
+    // The tag-editor sub-views are state-driven so wrappers don't have to
+    // know how to render them. Order matches the rofi script's dispatch:
+    // add-mode wins over edit-target, which wins over tag-filter selection.
+    if tag_add_mode == "on" {
+        return cmd_add_tag_view(paths, &integration, &tag_edit_target, format);
+    }
+    if !tag_edit_target.is_empty() {
+        return cmd_tag_editor_view(paths, &integration, &tag_edit_target, format);
+    }
 
     // Tag selection view short-circuits everything else.
     if tag_mode == "selecting" {
@@ -977,6 +1024,102 @@ fn cmd_view(paths: &Paths, format: Format) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+// ───── tag editor sub-views (state-driven) ───────────────────────────────────
+
+/// Render the per-entry tag editor. Rows: a Back row, an Add row, and one
+/// row per tag currently on the entry — selecting a tag row removes it.
+fn cmd_tag_editor_view(
+    paths: &Paths,
+    integration: &str,
+    target: &str,
+    format: Format,
+) -> Result<ExitCode> {
+    let integ = integrations::by_name(integration)?;
+    let idx = integ.read_index(paths)?;
+    let tags: Vec<String> = idx
+        .entries
+        .iter()
+        .find(|e| e.id == target)
+        .map(|e| e.tags.clone())
+        .unwrap_or_default();
+    let label = target.rsplit('/').next().unwrap_or(target).to_string();
+
+    let mut rows: Vec<Row<'_>> = Vec::with_capacity(tags.len() + 2);
+    rows.push(Row::Control {
+        label: "← Back".to_string(),
+        info: "tagedit:back".to_string(),
+        icon: None,
+    });
+    rows.push(Row::Control {
+        label: "+ Add tag…".to_string(),
+        info: "tagedit:add".to_string(),
+        icon: None,
+    });
+    for t in &tags {
+        if t.is_empty() {
+            continue;
+        }
+        rows.push(Row::Control {
+            label: t.clone(),
+            info: format!("tagedit:remove:{t}"),
+            icon: None,
+        });
+    }
+    let hints = ViewHints {
+        prompt: format!("Tags: {label}"),
+        message: "Enter to remove tag | \"+ Add\" prompts for a new tag | ← Back".to_string(),
+        use_hot_keys: true,
+    };
+    let stdout = io::stdout().lock();
+    let mut out = BufWriter::new(stdout);
+    write_rows(&mut out, &rows, &hints, format)?;
+    out.flush()?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Render the add-tag prompt. Rows: a Cancel row + every catalog tag for
+/// the active integration. Wrappers that support free-form input let the
+/// user type a brand-new tag too.
+fn cmd_add_tag_view(
+    paths: &Paths,
+    integration: &str,
+    target: &str,
+    format: Format,
+) -> Result<ExitCode> {
+    let catalog = crate::tags::TagCatalog::load(&paths.tag_catalog_file())?;
+    let tags = catalog.list(integration);
+    let label = target.rsplit('/').next().unwrap_or(target).to_string();
+
+    let mut rows: Vec<Row<'_>> = Vec::with_capacity(tags.len() + 1);
+    rows.push(Row::Control {
+        label: "← Cancel".to_string(),
+        info: "tagedit:cancel".to_string(),
+        icon: None,
+    });
+    for t in &tags {
+        if t.is_empty() {
+            continue;
+        }
+        rows.push(Row::Control {
+            label: t.clone(),
+            // The rofi script treats a non-`tagedit:*` info as "user picked a
+            // catalog tag to add" — same convention here for any wrapper.
+            info: format!("tagedit:pick:{t}"),
+            icon: None,
+        });
+    }
+    let hints = ViewHints {
+        prompt: format!("Add tag to {label}"),
+        message: "Pick a known tag or type a new one — Enter to add, Esc to cancel".to_string(),
+        use_hot_keys: true,
+    };
+    let stdout = io::stdout().lock();
+    let mut out = BufWriter::new(stdout);
+    write_rows(&mut out, &rows, &hints, format)?;
+    out.flush()?;
+    Ok(ExitCode::SUCCESS)
+}
+
 // ───── tags ──────────────────────────────────────────────────────────────────
 
 fn cmd_tags(paths: &Paths, integration: Option<&str>, format: Format) -> Result<ExitCode> {
@@ -1025,7 +1168,7 @@ fn cmd_tags(paths: &Paths, integration: Option<&str>, format: Format) -> Result<
             let list: Vec<&str> = tag_thumb.keys().copied().collect();
             serde_json::to_writer(&mut out, &list)?;
         }
-        Format::Rofi => {
+        Format::Rofi | Format::Walker | Format::Wofi => {
             // Header + "All tags" reset row + one row per tag.
             let mut rows: Vec<Row<'_>> = Vec::new();
             rows.push(Row::Control {
@@ -1132,7 +1275,10 @@ fn cmd_tag(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
                     let stdout = io::stdout().lock();
                     serde_json::to_writer(stdout, &tags)?;
                 }
-                Format::Rofi => {
+                // Plain-text formats. The picker scripts feed this list as
+                // candidate input to their search box; no icons or routing
+                // info is needed here.
+                Format::Rofi | Format::Walker | Format::Wofi => {
                     for t in tags {
                         println!("{t}");
                     }
@@ -1172,6 +1318,33 @@ fn cmd_tag(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+// ───── rating overrides ──────────────────────────────────────────────────────
+
+fn cmd_rating(paths: &Paths, cmd: RatingCmd) -> Result<ExitCode> {
+    let path = paths.rating_overrides_file();
+    let mut overrides = crate::rating::RatingOverrides::load(&path)?;
+    match cmd {
+        RatingCmd::Set { integration, id, rating } => {
+            overrides.set(integration.as_str(), &id, rating);
+            overrides.save(&path)?;
+        }
+        RatingCmd::Clear { integration, id } => {
+            overrides.clear(integration.as_str(), &id);
+            overrides.save(&path)?;
+        }
+        RatingCmd::Show { integration, id } => {
+            let integ = integrations::by_name(integration.as_str())?;
+            let idx = integ.read_index(paths)?;
+            if let Some(entry) = idx.entries.iter().find(|e| e.id == id) {
+                println!("{}", entry.rating);
+            } else {
+                return Err(anyhow!("entry not in index: {id}"));
+            }
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 // ───── favorites ─────────────────────────────────────────────────────────────
 
 fn cmd_favorites(paths: &Paths, cmd: FavoritesCmd) -> Result<ExitCode> {
@@ -1197,7 +1370,8 @@ fn cmd_favorites(paths: &Paths, cmd: FavoritesCmd) -> Result<ExitCode> {
                     let stdout = io::stdout().lock();
                     serde_json::to_writer(stdout, &ids)?;
                 }
-                Format::Rofi => {
+                // Plain id-per-line — every picker can consume that.
+                Format::Rofi | Format::Walker | Format::Wofi => {
                     for id in ids {
                         println!("{id}");
                     }
@@ -1311,31 +1485,24 @@ fn cmd_monitors(
                 .collect();
             serde_json::to_writer(&mut out, &list)?;
         }
-        Format::Rofi => {
-            // Emit one rofi row per monitor. The `info` field carries the
-            // target (image path or WE folder) so the shell can apply once
-            // the user picks a monitor. Rofi expects a single \0 between the
-            // display text and the metadata block; subsequent pairs are
-            // separated by \x1f — a second \0 hides everything after it.
-            for m in &monitors {
-                let icon = thumbs.get(m);
-                out.write_all(m.as_bytes())?;
-                let mut wrote_meta = false;
-                if let Some(icon) = icon {
-                    out.write_all(&[0])?;
-                    wrote_meta = true;
-                    write!(out, "icon")?;
-                    out.write_all(&[0x1f])?;
-                    out.write_all(icon.to_string_lossy().as_bytes())?;
-                }
-                if let Some(t) = target {
-                    out.write_all(&[if wrote_meta { 0x1f } else { 0 }])?;
-                    write!(out, "info")?;
-                    out.write_all(&[0x1f])?;
-                    out.write_all(t.as_bytes())?;
-                }
-                writeln!(out)?;
-            }
+        Format::Rofi | Format::Walker | Format::Wofi => {
+            // One row per monitor. The `info` payload carries the entry id
+            // (image path or WE folder) so the wrapper can route the apply
+            // call after the user picks a monitor.
+            let rows: Vec<Row<'_>> = monitors
+                .iter()
+                .map(|m| Row::Control {
+                    label: m.clone(),
+                    info: target.unwrap_or_default().to_string(),
+                    icon: thumbs.get(m).cloned(),
+                })
+                .collect();
+            let hints = ViewHints {
+                prompt: "Monitor".to_string(),
+                message: String::new(),
+                use_hot_keys: false,
+            };
+            write_rows(&mut out, &rows, &hints, format)?;
         }
     }
     out.flush()?;

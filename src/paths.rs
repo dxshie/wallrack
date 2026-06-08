@@ -55,6 +55,10 @@ impl Paths {
         self.cache_root.join("tag_catalog.json")
     }
 
+    pub fn rating_overrides_file(&self) -> PathBuf {
+        self.cache_root.join("rating_overrides.json")
+    }
+
     pub fn state_file(&self) -> PathBuf {
         self.cache_root.join("state.json")
     }

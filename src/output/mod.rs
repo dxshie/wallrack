@@ -7,11 +7,17 @@ use clap::ValueEnum;
 use crate::entry::Entry;
 
 pub mod rofi;
+pub mod walker;
+pub mod wofi;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum Format {
     /// Rofi script-mode protocol (null-separated rows with icon/info hints).
     Rofi,
+    /// Walker dmenu TSV: `LABEL\tICON\tINFO` per line.
+    Walker,
+    /// Wofi dmenu with `img:` prefix; routing payload tacked on after U+001F.
+    Wofi,
     /// JSON array of entries — for any other picker / programmatic use.
     Json,
 }
@@ -54,6 +60,8 @@ pub fn write_rows<W: Write>(
 ) -> Result<()> {
     match format {
         Format::Rofi => rofi::write(w, rows, hints),
+        Format::Walker => walker::write(w, rows, hints),
+        Format::Wofi => wofi::write(w, rows, hints),
         Format::Json => write_json(w, rows),
     }
 }

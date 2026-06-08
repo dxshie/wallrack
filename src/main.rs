@@ -8,6 +8,7 @@ mod favorites;
 mod integrations;
 mod output;
 mod paths;
+mod rating;
 mod state;
 mod tags;
 mod thumbnail;
