@@ -6,11 +6,17 @@
 # list. Entry actions (apply / favorite / edit tags) live in a sub-menu
 # that opens after picking an entry.
 #
-# Protocol: each wofi row is `[img:THUMB:]DISPLAY\x1fPAYLOAD`. Wofi echoes
-# the selected line on stdout; we strip the optional `img:` prefix and split
-# the rest on U+001F to recover the payload. Payload prefixes match the
-# rofi reference picker (`image:`, `folder:`, `tag:`, `back:`, `tagedit:*`)
-# plus an `action:*` family this wrapper invents.
+# Protocol: each input row is `[img:THUMB:text:]DISPLAY\x1fPAYLOAD`. Wofi 1.5+
+# expects the literal `:text:` between the thumbnail path and the label;
+# without it wofi treats the whole line as one path and fails to load.
+# Because wofi has no `info` channel like rofi (it echoes the displayed line
+# verbatim, including any U+001F we'd embed — which renders as a tofu box
+# next to the label) we feed wofi only the display half of each row and use
+# `dmenu-print_line_num=true` to get the picked row's index back. The bash
+# side keeps the full rows in a parallel array and looks up the payload by
+# index. Payload prefixes match the rofi reference picker (`image:`,
+# `folder:`, `tag:`, `back:`, `tagedit:*`) plus an `action:*` family this
+# wrapper invents.
 #
 # Hard requirements: wofi (>=1.4 for `--allow-images`), wallrack, jq.
 # Soft requirements (per-integration backend, same as rofi reference):
@@ -21,7 +27,7 @@ set -o pipefail
 NOTIFY_OPTIONS=(-i "${WALLRACK_NOTIFY_ICON:-dialog-information}" "Wallrack")
 
 WOFI_BIN="${WOFI_BIN:-wofi}"
-WOFI_BASE_ARGS=(--dmenu --allow-images --width 900 --height 700)
+WOFI_BASE_ARGS=(--dmenu --allow-images --width 900 --height 700 -D dmenu-print_line_num=true)
 
 # U+001F (unit separator) — same character the binary emits between display
 # and payload.
@@ -59,30 +65,65 @@ ensure_index() {
   fi
 }
 
-# Extract the payload from a wofi-returned line. Strips a leading `img:PATH:`
-# prefix wofi echoes back, then splits on the unit separator.
+# Strip the wofi image-escape prefix (`img:PATH:text:`) so the display half
+# of a row can be inspected as plain text. Uses two anchored substitutions so
+# a colon inside the display text can't be mistaken for the prefix
+# terminator.
+strip_img_prefix() {
+  local line="$1"
+  if [[ "$line" == img:*:text:* ]]; then
+    line="${line#img:*:text:}"
+  fi
+  printf '%s' "$line"
+}
+
 parse_payload() {
   local line="$1"
-  if [[ "$line" == img:*:* ]]; then
-    line="${line#img:*:}"
-  fi
   local payload="${line#*$US}"
   [[ "$payload" == "$line" ]] && payload=""
   printf '%s' "$payload"
 }
 
-# Same as above but for the display portion (everything before US).
 parse_display() {
-  local line="$1"
-  if [[ "$line" == img:*:* ]]; then
-    line="${line#img:*:}"
-  fi
+  local line
+  line=$(strip_img_prefix "$1")
   printf '%s' "${line%%$US*}"
 }
 
 emit_action_row() {
   # label, payload — no icon.
   printf '%s%s%s\n' "$1" "$US" "$2"
+}
+
+# Read full `display\x1fpayload` rows from stdin, show only the display half
+# in wofi, and echo the full row of whichever entry the user picks. Returns
+# non-zero on cancel/empty input so callers can branch.
+wofi_pick() {
+  local prompt="$1"
+  local -a rows=()
+  local line
+  while IFS= read -r line; do
+    rows+=("$line")
+  done
+  if [[ ${#rows[@]} -eq 0 ]]; then
+    return 1
+  fi
+  # Strip everything from US onward so wofi never sees the payload (it would
+  # render U+001F as a tofu box). The rows[] array still holds the full text.
+  # The second sub inserts `:text:` for any row missing it — a safety net so
+  # the script still works against a wallrack binary built before the format
+  # was updated. Wallrack cache thumbs don't contain colons in their paths,
+  # so `[^:]+` is a safe pattern for the path portion.
+  local idx
+  idx=$(
+    printf '%s\n' "${rows[@]}" \
+      | sed -E "s/$US.*//; /^img:[^:]+:text:/!s/^img:([^:]+):/img:\\1:text:/" \
+      | "$WOFI_BIN" "${WOFI_BASE_ARGS[@]}" --prompt "$prompt"
+  )
+  if [[ -z "$idx" ]]; then
+    return 1
+  fi
+  printf '%s' "${rows[$idx]}"
 }
 
 header_rows() {
@@ -112,15 +153,14 @@ entry_action_menu() {
     emit_action_row "★ $fav_lbl"          "action:fav"
     emit_action_row "# edit tags"         "action:tag_edit"
     emit_action_row "← cancel"            "action:cancel"
-  } | "$WOFI_BIN" "${WOFI_BASE_ARGS[@]}" --prompt "$label"
+  } | wofi_pick "$label"
 }
 
 pick_monitor() {
   local target="$1" mode="$2"
   local sel
   sel=$(wallrack monitors --integration="$mode" --target="$target" --format=wofi \
-        | "$WOFI_BIN" "${WOFI_BASE_ARGS[@]}" --prompt "Monitor")
-  [[ -z "$sel" ]] && return 1
+        | wofi_pick "Monitor") || return 1
   printf '%s' "$(parse_display "$sel")"
 }
 
@@ -175,13 +215,13 @@ while true; do
   if [[ "$tag_add_mode" == "on" || -n "$tag_edit_target" || "$tag_mode" == "selecting" ]]; then
     # Sub-views: render exactly what the binary emits — no action header so
     # the user isn't tempted to change global state mid-edit.
-    selection=$(wallrack view --format=wofi | "$WOFI_BIN" "${WOFI_BASE_ARGS[@]}" --prompt "$prompt")
+    selection=$(wallrack view --format=wofi | wofi_pick "$prompt") || selection=""
   else
     selection=$(
       { header_rows "$picker_mode" "$view_mode" "$tag_filter" "$rating" "$drill"
         wallrack view --format=wofi
-      } | "$WOFI_BIN" "${WOFI_BASE_ARGS[@]}" --prompt "$prompt"
-    )
+      } | wofi_pick "$prompt"
+    ) || selection=""
   fi
 
   if [[ -z "$selection" ]]; then

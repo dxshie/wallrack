@@ -46,7 +46,7 @@ fn emit<W: Write>(w: &mut W, display: &str, icon: &str, payload: &str) -> Result
     let display = sanitize(display);
     let payload = sanitize(payload);
     if !icon.is_empty() {
-        write!(w, "img:{icon}:")?;
+        write!(w, "img:{icon}:text:")?;
     }
     w.write_all(display.as_bytes())?;
     w.write_all(&[UNIT_SEP])?;
