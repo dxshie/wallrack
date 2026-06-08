@@ -11,24 +11,43 @@ use crate::config::Config;
 // ───── terminal color helpers ────────────────────────────────────────────────
 
 struct C {
-    bold:   &'static str,
-    green:  &'static str,
+    bold: &'static str,
+    green: &'static str,
     yellow: &'static str,
-    cyan:   &'static str,
-    red:    &'static str,
-    dim:    &'static str,
-    reset:  &'static str,
+    cyan: &'static str,
+    red: &'static str,
+    dim: &'static str,
+    reset: &'static str,
 }
 
 impl C {
-    fn stdout() -> Self { Self::for_tty(io::stdout().is_terminal()) }
-    fn stderr() -> Self { Self::for_tty(io::stderr().is_terminal()) }
+    fn stdout() -> Self {
+        Self::for_tty(io::stdout().is_terminal())
+    }
+    fn stderr() -> Self {
+        Self::for_tty(io::stderr().is_terminal())
+    }
     fn for_tty(on: bool) -> Self {
         if on {
-            Self { bold: "\x1b[1m", green: "\x1b[32m", yellow: "\x1b[33m",
-                   cyan: "\x1b[36m", red: "\x1b[31m", dim: "\x1b[2m", reset: "\x1b[0m" }
+            Self {
+                bold: "\x1b[1m",
+                green: "\x1b[32m",
+                yellow: "\x1b[33m",
+                cyan: "\x1b[36m",
+                red: "\x1b[31m",
+                dim: "\x1b[2m",
+                reset: "\x1b[0m",
+            }
         } else {
-            Self { bold: "", green: "", yellow: "", cyan: "", red: "", dim: "", reset: "" }
+            Self {
+                bold: "",
+                green: "",
+                yellow: "",
+                cyan: "",
+                red: "",
+                dim: "",
+                reset: "",
+            }
         }
     }
 }
@@ -36,11 +55,11 @@ impl C {
 fn make_clap_styles() -> clap::builder::Styles {
     use clap::builder::styling::{AnsiColor, Effects, Styles};
     Styles::styled()
-        .header(AnsiColor::Yellow.on_default()  | Effects::BOLD)
-        .usage(AnsiColor::Green.on_default()    | Effects::BOLD)
-        .literal(AnsiColor::Cyan.on_default()   | Effects::BOLD)
+        .header(AnsiColor::Yellow.on_default() | Effects::BOLD)
+        .usage(AnsiColor::Green.on_default() | Effects::BOLD)
+        .literal(AnsiColor::Cyan.on_default() | Effects::BOLD)
         .placeholder(AnsiColor::White.on_default())
-        .error(AnsiColor::Red.on_default()      | Effects::BOLD)
+        .error(AnsiColor::Red.on_default() | Effects::BOLD)
         .valid(AnsiColor::Green.on_default())
         .invalid(AnsiColor::Yellow.on_default())
 }
@@ -167,19 +186,42 @@ enum FavoritesCmd {
         #[arg(long, default_value = "json")]
         format: Format,
     },
-    Add { #[arg(long)] integration: String, id: String },
-    Remove { #[arg(long)] integration: String, id: String },
+    Add {
+        #[arg(long)]
+        integration: String,
+        id: String,
+    },
+    Remove {
+        #[arg(long)]
+        integration: String,
+        id: String,
+    },
     /// Toggle favorite. Prints "added" or "removed".
-    Toggle { #[arg(long)] integration: String, id: String },
+    Toggle {
+        #[arg(long)]
+        integration: String,
+        id: String,
+    },
     /// Test whether an id is favorited. Exit 0 if yes, 1 if no.
-    Is { #[arg(long)] integration: String, id: String },
+    Is {
+        #[arg(long)]
+        integration: String,
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
 enum StateCmd {
-    Get { key: String },
-    Set { key: String, value: String },
-    Unset { key: String },
+    Get {
+        key: String,
+    },
+    Set {
+        key: String,
+        value: String,
+    },
+    Unset {
+        key: String,
+    },
     /// Print all state as JSON.
     Dump,
     /// Reset transient picker state (drill_path, tag_mode). Keeps picker_mode etc.
@@ -205,15 +247,43 @@ pub fn run() -> Result<ExitCode> {
 
     match cli.cmd {
         Cmd::Index { integration } => cmd_index(&paths, &config, &integration),
-        Cmd::List { integration, format, favorites, tag, rating, folder, use_state, group } => {
-            cmd_list(&paths, &integration, format, favorites, tag, rating, folder, use_state, group)
-        }
+        Cmd::List {
+            integration,
+            format,
+            favorites,
+            tag,
+            rating,
+            folder,
+            use_state,
+            group,
+        } => cmd_list(
+            &paths,
+            &integration,
+            format,
+            favorites,
+            tag,
+            rating,
+            folder,
+            use_state,
+            group,
+        ),
         Cmd::View { format } => cmd_view(&paths, format),
-        Cmd::Tags { integration, format } => cmd_tags(&paths, integration.as_deref(), format),
+        Cmd::Tags {
+            integration,
+            format,
+        } => cmd_tags(&paths, integration.as_deref(), format),
         Cmd::Favorites { cmd } => cmd_favorites(&paths, cmd),
         Cmd::State { cmd } => cmd_state(&paths, cmd),
-        Cmd::Monitors { integration, target, format } => cmd_monitors(&paths, integration.as_deref(), target.as_deref(), format),
-        Cmd::Apply { integration, monitor, target } => cmd_apply(&paths, integration.as_deref(), &monitor, &target),
+        Cmd::Monitors {
+            integration,
+            target,
+            format,
+        } => cmd_monitors(&paths, integration.as_deref(), target.as_deref(), format),
+        Cmd::Apply {
+            integration,
+            monitor,
+            target,
+        } => cmd_apply(&paths, integration.as_deref(), &monitor, &target),
         Cmd::Daemon { cmd } => cmd_daemon(&paths, &config, cmd),
         Cmd::Info => cmd_info(&paths, &config),
     }
@@ -235,7 +305,7 @@ fn cmd_index(paths: &Paths, config: &Config, integration: &str) -> Result<ExitCo
 
     for integ in &targets {
         if in_rofi {
-            notify_send(&format!("Indexing {}…", integ.name()), 0);
+            notify_send(&format!("Indexing {}…", integ.name()), 3000);
         }
         let started = std::time::Instant::now();
         match integ.index(paths, config) {
@@ -245,16 +315,28 @@ fn cmd_index(paths: &Paths, config: &Config, integration: &str) -> Result<ExitCo
                 let elapsed = started.elapsed().as_secs_f32();
                 eprintln!(
                     "wallrack: {}{}{} indexed {}{}{} entries in {:.2}s",
-                    c.yellow, integ.name(), c.reset,
-                    c.green, n, c.reset,
+                    c.yellow,
+                    integ.name(),
+                    c.reset,
+                    c.green,
+                    n,
+                    c.reset,
                     elapsed,
                 );
                 if in_rofi && multi {
-                    notify_send(&format!("{}: {} entries ({:.1}s)", integ.name(), n, elapsed), 0);
+                    notify_send(
+                        &format!("{}: {} entries ({:.1}s)", integ.name(), n, elapsed),
+                        0,
+                    );
                 }
             }
             Err(err) => {
-                eprintln!("wallrack: {}{}{} index failed: {err:#}", c.red, integ.name(), c.reset);
+                eprintln!(
+                    "wallrack: {}{}{} index failed: {err:#}",
+                    c.red,
+                    integ.name(),
+                    c.reset
+                );
                 if in_rofi {
                     notify_send(&format!("{}: failed — {err}", integ.name()), 5000);
                 }
@@ -291,7 +373,9 @@ fn cmd_list(
     let (integration, favorites_only, tag, rating, folder, group) = if use_state {
         // Pull filter context from persisted picker state.
         let state = State::load(&paths.state_file())?;
-        let picker_mode = state.get_or(state::keys::PICKER_MODE, "wallpaper").to_string();
+        let picker_mode = state
+            .get_or(state::keys::PICKER_MODE, "wallpaper")
+            .to_string();
         let view_mode = state.get_or(state::keys::VIEW_MODE, "all").to_string();
         let drill = state.get_or(state::keys::DRILL_PATH, "").to_string();
         let tag_filter = state.get_or(state::keys::TAG_FILTER, "").to_string();
@@ -300,30 +384,77 @@ fn cmd_list(
         (
             picker_mode,
             view_mode == "favorites",
-            if tag_filter.is_empty() { None } else { Some(tag_filter) },
-            if rating.is_empty() || rating == "All" { None } else { Some(rating) },
+            if tag_filter.is_empty() {
+                None
+            } else {
+                Some(tag_filter)
+            },
+            if rating.is_empty() || rating == "All" {
+                None
+            } else {
+                Some(rating)
+            },
             if drill.is_empty() { None } else { Some(drill) },
             group,
         )
     } else {
-        (integration.to_string(), favorites_only, tag, rating, folder, group)
+        (
+            integration.to_string(),
+            favorites_only,
+            tag,
+            rating,
+            folder,
+            group,
+        )
     };
 
     let integ = integrations::by_name(&integration)?;
     let index = integ.read_index(paths)?;
     let favorites = Favorites::load(&paths.favorites_file())?;
 
-    let filtered = filter_entries(&index, &favorites, favorites_only, tag.as_deref(), rating.as_deref(), folder.as_deref());
+    let filtered = filter_entries(
+        &index,
+        &favorites,
+        favorites_only,
+        tag.as_deref(),
+        rating.as_deref(),
+        folder.as_deref(),
+    );
 
     let stdout = io::stdout().lock();
     let mut out = BufWriter::new(stdout);
 
     if let Some(folder_path) = folder.as_deref() {
-        emit_drill_view(&mut out, &filtered, &favorites, &integration, folder_path, favorites_only, tag.as_deref(), format)?;
+        emit_drill_view(
+            &mut out,
+            &filtered,
+            &favorites,
+            &integration,
+            folder_path,
+            favorites_only,
+            tag.as_deref(),
+            format,
+        )?;
     } else if group && integration == "wallpaper" {
-        emit_grouped_view(&mut out, &filtered, &favorites, &integration, favorites_only, tag.as_deref(), format)?;
+        emit_grouped_view(
+            &mut out,
+            &filtered,
+            &favorites,
+            &integration,
+            favorites_only,
+            tag.as_deref(),
+            format,
+        )?;
     } else {
-        emit_flat(&mut out, &filtered, &favorites, &integration, favorites_only, tag.as_deref(), format)?;
+        emit_flat(
+            &mut out,
+            &filtered,
+            &favorites,
+            &integration,
+            favorites_only,
+            tag.as_deref(),
+            format,
+        )?;
     }
     out.flush()?;
     Ok(ExitCode::SUCCESS)
@@ -389,7 +520,12 @@ fn emit_flat<W: Write>(
             info: None,
         })
         .collect();
-    write_rows(w, &rows, &view_hints_for(integration, None, favorites_only, tag_filter), format)
+    write_rows(
+        w,
+        &rows,
+        &view_hints_for(integration, None, favorites_only, tag_filter),
+        format,
+    )
 }
 
 fn emit_drill_view<W: Write>(
@@ -450,7 +586,11 @@ fn emit_grouped_view<W: Write>(
             });
         } else {
             // Nested: emit one entry per (workshop_id, subfolder).
-            let key = format!("{}\u{1c}{}", e.workshop_id.clone().unwrap_or_default(), e.subfolder);
+            let key = format!(
+                "{}\u{1c}{}",
+                e.workshop_id.clone().unwrap_or_default(),
+                e.subfolder
+            );
             if !seen_folders.insert(key) {
                 continue;
             }
@@ -467,7 +607,12 @@ fn emit_grouped_view<W: Write>(
             });
         }
     }
-    write_rows(w, &rows, &view_hints_for(integration, None, favorites_only, tag_filter), format)
+    write_rows(
+        w,
+        &rows,
+        &view_hints_for(integration, None, favorites_only, tag_filter),
+        format,
+    )
 }
 
 fn view_hints_for(
@@ -481,7 +626,11 @@ fn view_hints_for(
         ("we", _) => "WE".to_string(),
         _ => "Wallpapers".to_string(),
     };
-    let mut prompt = if favorites_only { format!("★ {base}") } else { base };
+    let mut prompt = if favorites_only {
+        format!("★ {base}")
+    } else {
+        base
+    };
     if let Some(t) = tag_filter {
         if !t.is_empty() {
             prompt = format!("{prompt} #{t}");
@@ -507,7 +656,9 @@ fn folder_label(folder_path: &str) -> String {
 
 fn cmd_view(paths: &Paths, format: Format) -> Result<ExitCode> {
     let state = State::load(&paths.state_file())?;
-    let integration = state.get_or(state::keys::PICKER_MODE, "wallpaper").to_string();
+    let integration = state
+        .get_or(state::keys::PICKER_MODE, "wallpaper")
+        .to_string();
     let view_mode = state.get_or(state::keys::VIEW_MODE, "all").to_string();
     let drill = state.get_or(state::keys::DRILL_PATH, "").to_string();
     let tag_filter = state.get_or(state::keys::TAG_FILTER, "").to_string();
@@ -524,24 +675,68 @@ fn cmd_view(paths: &Paths, format: Format) -> Result<ExitCode> {
     let favorites = Favorites::load(&paths.favorites_file())?;
 
     let favorites_only = view_mode == "favorites";
-    let tag = if tag_filter.is_empty() { None } else { Some(tag_filter.as_str()) };
-    let rating_opt = if rating.is_empty() || rating == "All" { None } else { Some(rating.as_str()) };
-    let folder_opt = if drill.is_empty() { None } else { Some(drill.as_str()) };
+    let tag = if tag_filter.is_empty() {
+        None
+    } else {
+        Some(tag_filter.as_str())
+    };
+    let rating_opt = if rating.is_empty() || rating == "All" {
+        None
+    } else {
+        Some(rating.as_str())
+    };
+    let folder_opt = if drill.is_empty() {
+        None
+    } else {
+        Some(drill.as_str())
+    };
 
-    let filtered = filter_entries(&index, &favorites, favorites_only, tag, rating_opt, folder_opt);
+    let filtered = filter_entries(
+        &index,
+        &favorites,
+        favorites_only,
+        tag,
+        rating_opt,
+        folder_opt,
+    );
 
     let stdout = io::stdout().lock();
     let mut out = BufWriter::new(stdout);
 
     if let Some(folder_path) = folder_opt {
-        emit_drill_view(&mut out, &filtered, &favorites, &integration, folder_path, favorites_only, tag, format)?;
+        emit_drill_view(
+            &mut out,
+            &filtered,
+            &favorites,
+            &integration,
+            folder_path,
+            favorites_only,
+            tag,
+            format,
+        )?;
     } else if drill.is_empty() && integration == "wallpaper" && !favorites_only {
         // Grouping collapses workshop subfolders into folder rows, which is
         // wrong for the favorites view: a favorite is an individual image and
         // Alt+3 on a folder row can't recover the real entry id.
-        emit_grouped_view(&mut out, &filtered, &favorites, &integration, favorites_only, tag, format)?;
+        emit_grouped_view(
+            &mut out,
+            &filtered,
+            &favorites,
+            &integration,
+            favorites_only,
+            tag,
+            format,
+        )?;
     } else {
-        emit_flat(&mut out, &filtered, &favorites, &integration, favorites_only, tag, format)?;
+        emit_flat(
+            &mut out,
+            &filtered,
+            &favorites,
+            &integration,
+            favorites_only,
+            tag,
+            format,
+        )?;
     }
     out.flush()?;
     Ok(ExitCode::SUCCESS)
@@ -554,7 +749,9 @@ fn cmd_tags(paths: &Paths, integration: Option<&str>, format: Format) -> Result<
         Some(s) => s.to_string(),
         None => {
             let state = State::load(&paths.state_file())?;
-            state.get_or(state::keys::PICKER_MODE, "wallpaper").to_string()
+            state
+                .get_or(state::keys::PICKER_MODE, "wallpaper")
+                .to_string()
         }
     };
     let integ = integrations::by_name(&integration)?;
@@ -572,7 +769,9 @@ fn cmd_tags(paths: &Paths, integration: Option<&str>, format: Format) -> Result<
             Some(e.thumb.as_path())
         };
         for t in &e.tags {
-            if t.is_empty() { continue; }
+            if t.is_empty() {
+                continue;
+            }
             let slot = tag_thumb.entry(t.as_str()).or_insert(None);
             if slot.is_none() {
                 if let Some(p) = thumb {
@@ -624,12 +823,17 @@ fn cmd_favorites(paths: &Paths, cmd: FavoritesCmd) -> Result<ExitCode> {
     let fav_path = paths.favorites_file();
     let mut favorites = Favorites::load(&fav_path)?;
     match cmd {
-        FavoritesCmd::List { integration, format } => {
+        FavoritesCmd::List {
+            integration,
+            format,
+        } => {
             let integration = match integration {
                 Some(s) => s,
                 None => {
                     let state = State::load(&paths.state_file())?;
-                    state.get_or(state::keys::PICKER_MODE, "wallpaper").to_string()
+                    state
+                        .get_or(state::keys::PICKER_MODE, "wallpaper")
+                        .to_string()
                 }
             };
             let ids = favorites.list(&integration);
@@ -639,7 +843,9 @@ fn cmd_favorites(paths: &Paths, cmd: FavoritesCmd) -> Result<ExitCode> {
                     serde_json::to_writer(stdout, &ids)?;
                 }
                 Format::Rofi => {
-                    for id in ids { println!("{id}"); }
+                    for id in ids {
+                        println!("{id}");
+                    }
                 }
             }
             Ok(ExitCode::SUCCESS)
@@ -660,13 +866,11 @@ fn cmd_favorites(paths: &Paths, cmd: FavoritesCmd) -> Result<ExitCode> {
             println!("{}", if now_fav { "added" } else { "removed" });
             Ok(ExitCode::SUCCESS)
         }
-        FavoritesCmd::Is { integration, id } => {
-            Ok(if favorites.is_favorite(&integration, &id) {
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::from(1)
-            })
-        }
+        FavoritesCmd::Is { integration, id } => Ok(if favorites.is_favorite(&integration, &id) {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(1)
+        }),
     }
 }
 
@@ -711,12 +915,19 @@ fn cmd_state(paths: &Paths, cmd: StateCmd) -> Result<ExitCode> {
 
 // ───── monitors ──────────────────────────────────────────────────────────────
 
-fn cmd_monitors(paths: &Paths, integration: Option<&str>, target: Option<&str>, format: Format) -> Result<ExitCode> {
+fn cmd_monitors(
+    paths: &Paths,
+    integration: Option<&str>,
+    target: Option<&str>,
+    format: Format,
+) -> Result<ExitCode> {
     let integration = match integration {
         Some(s) => s.to_string(),
         None => {
             let state = State::load(&paths.state_file())?;
-            state.get_or(state::keys::PICKER_MODE, "wallpaper").to_string()
+            state
+                .get_or(state::keys::PICKER_MODE, "wallpaper")
+                .to_string()
         }
     };
 
@@ -767,16 +978,21 @@ fn cmd_monitors(paths: &Paths, integration: Option<&str>, target: Option<&str>, 
 }
 
 #[derive(Debug, Deserialize)]
-struct HyprMonitor { name: String }
+struct HyprMonitor {
+    name: String,
+}
 
 fn list_monitors() -> Result<Vec<String>> {
-    let out = Command::new("hyprctl").arg("monitors").arg("-j").output()
+    let out = Command::new("hyprctl")
+        .arg("monitors")
+        .arg("-j")
+        .output()
         .context("hyprctl monitors -j")?;
     if !out.status.success() {
         return Err(anyhow!("hyprctl exited with {}", out.status));
     }
-    let mons: Vec<HyprMonitor> = serde_json::from_slice(&out.stdout)
-        .context("parse hyprctl json")?;
+    let mons: Vec<HyprMonitor> =
+        serde_json::from_slice(&out.stdout).context("parse hyprctl json")?;
     Ok(mons.into_iter().map(|m| m.name).collect())
 }
 
@@ -800,11 +1016,15 @@ fn current_thumb_for_monitor(integration: &str, monitor: &str, paths: &Paths) ->
             // Older swww output dropped the leading `: `, so trim it before
             // matching the monitor prefix.
             let out = Command::new("awww").arg("query").output().ok()?;
-            if !out.status.success() { return None; }
+            if !out.status.success() {
+                return None;
+            }
             let text = String::from_utf8_lossy(&out.stdout);
             for line in text.lines() {
                 let trimmed = line.trim_start_matches(|c: char| c == ':' || c == ' ');
-                let Some(rest) = trimmed.strip_prefix(&format!("{monitor}:")) else { continue };
+                let Some(rest) = trimmed.strip_prefix(&format!("{monitor}:")) else {
+                    continue;
+                };
                 if let Some(img) = rest.split("image:").nth(1) {
                     return Some(PathBuf::from(img.trim()));
                 }
@@ -817,12 +1037,19 @@ fn current_thumb_for_monitor(integration: &str, monitor: &str, paths: &Paths) ->
 
 // ───── apply ─────────────────────────────────────────────────────────────────
 
-fn cmd_apply(paths: &Paths, integration: Option<&str>, monitor: &str, target: &str) -> Result<ExitCode> {
+fn cmd_apply(
+    paths: &Paths,
+    integration: Option<&str>,
+    monitor: &str,
+    target: &str,
+) -> Result<ExitCode> {
     let integration = match integration {
         Some(s) => s.to_string(),
         None => {
             let state = State::load(&paths.state_file())?;
-            state.get_or(state::keys::PICKER_MODE, "wallpaper").to_string()
+            state
+                .get_or(state::keys::PICKER_MODE, "wallpaper")
+                .to_string()
         }
     };
     let integ = integrations::by_name(&integration)?;
@@ -842,9 +1069,18 @@ fn cmd_apply(paths: &Paths, integration: Option<&str>, monitor: &str, target: &s
 fn cmd_daemon(paths: &Paths, config: &Config, cmd: DaemonCmd) -> Result<ExitCode> {
     let d = Daemon::new(paths);
     match cmd {
-        DaemonCmd::Start { foreground } => { d.start(config, foreground)?; Ok(ExitCode::SUCCESS) }
-        DaemonCmd::Stop => { d.stop()?; Ok(ExitCode::SUCCESS) }
-        DaemonCmd::Status => { d.status()?; Ok(ExitCode::SUCCESS) }
+        DaemonCmd::Start { foreground } => {
+            d.start(config, foreground)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        DaemonCmd::Stop => {
+            d.stop()?;
+            Ok(ExitCode::SUCCESS)
+        }
+        DaemonCmd::Status => {
+            d.status()?;
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 
@@ -853,8 +1089,18 @@ fn cmd_daemon(paths: &Paths, config: &Config, cmd: DaemonCmd) -> Result<ExitCode
 fn cmd_info(paths: &Paths, config: &Config) -> Result<ExitCode> {
     let c = C::stdout();
 
-    println!("{}config:{} {}", c.bold, c.reset, paths.config_file().display());
-    println!("{}cache:{}  {}", c.bold, c.reset, paths.cache_dir().display());
+    println!(
+        "{}config:{} {}",
+        c.bold,
+        c.reset,
+        paths.config_file().display()
+    );
+    println!(
+        "{}cache:{}  {}",
+        c.bold,
+        c.reset,
+        paths.cache_dir().display()
+    );
 
     // Collect per-integration indexes (best-effort; missing index → 0 entries).
     let mut total_entries: usize = 0;
@@ -867,28 +1113,43 @@ fn cmd_info(paths: &Paths, config: &Config) -> Result<ExitCode> {
         integration_indexes.push((integ.name(), idx));
     }
 
-    println!("{}index:{} {}{}{} total entries", c.bold, c.reset, c.green, total_entries, c.reset);
+    println!(
+        "{}index:{} {}{}{} total entries",
+        c.bold, c.reset, c.green, total_entries, c.reset
+    );
     println!("{}integrations:{}", c.bold, c.reset);
     for (name, idx) in &integration_indexes {
         let file = paths.index_file(name);
         match idx {
             Some(i) => println!(
                 "  {}{:<12}{}  {}{:>6}{} entries  {}({}){}",
-                c.cyan, name, c.reset,
-                c.green, i.entries.len(), c.reset,
-                c.dim, file.display(), c.reset,
+                c.cyan,
+                name,
+                c.reset,
+                c.green,
+                i.entries.len(),
+                c.reset,
+                c.dim,
+                file.display(),
+                c.reset,
             ),
             None => println!(
                 "  {}{:<12}{}  {}missing{}      {}({}){}",
-                c.yellow, name, c.reset,
-                c.red, c.reset,
-                c.dim, file.display(), c.reset,
+                c.yellow,
+                name,
+                c.reset,
+                c.red,
+                c.reset,
+                c.dim,
+                file.display(),
+                c.reset,
             ),
         }
     }
 
     // Per-wallpaper-dir counts from the wallpaper integration index.
-    let wp_entries: Vec<_> = integration_indexes.iter()
+    let wp_entries: Vec<_> = integration_indexes
+        .iter()
         .find(|(n, _)| *n == "wallpaper")
         .and_then(|(_, idx)| idx.as_ref())
         .map(|i| &i.entries[..])
@@ -897,14 +1158,26 @@ fn cmd_info(paths: &Paths, config: &Config) -> Result<ExitCode> {
 
     println!("{}wallpaper dirs:{}", c.bold, c.reset);
     for d in config.wallpaper_dirs() {
-        let count = wp_entries.iter()
+        let count = wp_entries
+            .iter()
             .filter(|e| e.source.starts_with(&d))
             .count();
-        println!("  {}{:>6}{} entries  {}", c.green, count, c.reset, d.display());
+        println!(
+            "  {}{:>6}{} entries  {}",
+            c.green,
+            count,
+            c.reset,
+            d.display()
+        );
     }
     if let Some(d) = config.wallpaper_steam_dir() {
         println!("{}wallpaper steam dir:{} {}", c.bold, c.reset, d.display());
     }
-    println!("{}WE workshop dir:{} {}", c.bold, c.reset, config.we_workshop_dir().display());
+    println!(
+        "{}WE workshop dir:{} {}",
+        c.bold,
+        c.reset,
+        config.we_workshop_dir().display()
+    );
     Ok(ExitCode::SUCCESS)
 }
