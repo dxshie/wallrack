@@ -217,46 +217,61 @@ fn read_project_json(path: &Path) -> Result<ProjectJson> {
 // One rayon-friendly progress reporter. Each worker calls `tick()`; we throttle
 // rendering to ~16fps so the terminal isn't slammed with writes, and only one
 // thread holds the render mutex at a time. Uses `\r` + `\x1b[K` (clear-to-EOL)
-// in a single write so the line is updated atomically without flicker. Falls
-// back to coarse line-per-50-items output when stderr isn't a TTY.
+// in a single write so the line is updated atomically without flicker. When
+// stderr is not a TTY (e.g. rofi script mode), sends notify-send notifications
+// with replace-id so a single notification live-updates instead of spamming.
 struct Progress {
     label: &'static str,
     total: usize,
     done: AtomicUsize,
-    last: Mutex<Instant>,
+    last_frame: Mutex<Instant>,
     rendered: AtomicBool,
     tty: bool,
     start: Instant,
+    notif_id: Mutex<Option<String>>,
+    last_notif: Mutex<Instant>,
 }
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const BAR_WIDTH: usize = 30;
 const FRAME_MS: u128 = 60;
+const NOTIFY_THROTTLE_MS: u128 = 1_000;
 
 impl Progress {
     fn new(label: &'static str, total: usize) -> Self {
+        let initial_notif_id = std::env::var("WALLRACK_NOTIF_ID").ok()
+            .filter(|s| !s.is_empty());
         Self {
             label,
             total,
             done: AtomicUsize::new(0),
-            last: Mutex::new(Instant::now()),
+            last_frame: Mutex::new(Instant::now()),
             rendered: AtomicBool::new(false),
             tty: std::io::stderr().is_terminal(),
             start: Instant::now(),
+            notif_id: Mutex::new(initial_notif_id),
+            last_notif: Mutex::new(Instant::now()),
         }
     }
 
     fn tick(&self) {
         let n = self.done.fetch_add(1, Ordering::Relaxed) + 1;
         if !self.tty {
-            if n % 50 == 0 || n == self.total {
-                eprintln!("wallrack: {}: {}/{} processed", self.label, n, self.total);
+            // try_lock: contending workers skip their tick rather than block.
+            let Ok(mut last_notif) = self.last_notif.try_lock() else { return };
+            let need_first = !self.rendered.load(Ordering::Relaxed);
+            if !need_first && last_notif.elapsed().as_millis() < NOTIFY_THROTTLE_MS {
+                return;
             }
+            *last_notif = Instant::now();
+            drop(last_notif);
+            self.rendered.store(true, Ordering::Relaxed);
+            self.notify_progress(n, false);
             return;
         }
         // try_lock so contending workers drop their tick instead of blocking the
         // par_iter; the next worker past the throttle window will pick it up.
-        let Ok(mut last) = self.last.try_lock() else { return };
+        let Ok(mut last) = self.last_frame.try_lock() else { return };
         let need_first = !self.rendered.load(Ordering::Relaxed);
         if !need_first && last.elapsed().as_millis() < FRAME_MS {
             return;
@@ -265,6 +280,34 @@ impl Progress {
         drop(last);
         self.rendered.store(true, Ordering::Relaxed);
         self.render(n);
+    }
+
+    fn notify_progress(&self, n: usize, done: bool) {
+        let pct = if self.total == 0 { 100 } else { (n * 100 / self.total).min(100) };
+        let body = if done {
+            format!("{} index built — {} wallpapers", self.label, n)
+        } else {
+            format!("Indexing {} — {}/{} ({}%)", self.label, n, self.total, pct)
+        };
+        let expire_ms = if done { "3000" } else { "0" };
+
+        let mut notif_id = self.notif_id.lock().unwrap();
+        let mut cmd = Command::new("notify-send");
+        cmd.arg("--print-id")
+           .arg(format!("--expire-time={expire_ms}"))
+           .arg("Wallrack")
+           .arg(&body);
+        if let Some(ref id) = *notif_id {
+            cmd.arg(format!("--replace-id={id}"));
+        }
+        if let Ok(output) = cmd.output() {
+            if output.status.success() {
+                let id_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !id_str.is_empty() {
+                    *notif_id = Some(id_str);
+                }
+            }
+        }
     }
 
     fn render(&self, n: usize) {
@@ -297,7 +340,7 @@ impl Progress {
             self.render(n);
             let _ = writeln!(std::io::stderr());
         } else {
-            eprintln!("wallrack: {}: {}/{} processed", self.label, n, self.total);
+            self.notify_progress(n, true);
         }
     }
 }

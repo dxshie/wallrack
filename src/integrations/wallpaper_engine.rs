@@ -56,6 +56,17 @@ impl Integration for WallpaperEngineIntegration {
 
         let index = Index { integration: NAME.to_string(), entries };
         crate::integrations::write_index(paths, &index)?;
+
+        let notif_id = std::env::var("WALLRACK_NOTIF_ID").ok().filter(|s| !s.is_empty());
+        let mut cmd = std::process::Command::new("notify-send");
+        cmd.arg("--expire-time=3000")
+           .arg("Wallrack")
+           .arg(format!("we index built — {} wallpapers", index.entries.len()));
+        if let Some(id) = notif_id {
+            cmd.arg(format!("--replace-id={id}"));
+        }
+        let _ = cmd.output();
+
         Ok(index)
     }
 

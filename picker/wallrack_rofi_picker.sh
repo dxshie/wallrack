@@ -51,8 +51,9 @@ ensure_index() {
   local integration="$1"
   if ! wallrack state get _index_built_$integration >/dev/null 2>&1; then
     if [[ ! -f "$HOME/.cache/wallrack/$integration/index.json" ]]; then
-      notify-send "${NOTIFY_OPTIONS[@]}" "Building $integration index for the first time — please wait..."
-      wallrack index --integration="$integration"
+      local notif_id
+      notif_id=$(notify-send --print-id "${NOTIFY_OPTIONS[@]}" "Building $integration index for the first time — please wait..." 2>/dev/null || true)
+      WALLRACK_NOTIF_ID="$notif_id" wallrack index --integration="$integration"
       wallrack state set _index_built_$integration 1 >/dev/null
     fi
   fi
@@ -139,14 +140,16 @@ case "$ROFI_RETV" in
   10)
     # kb-custom-1 (Alt+1): toggle between wallpaper and WE mode
     if [[ "$picker_mode" == "we" ]]; then
-      wallrack state set picker_mode wallpaper >/dev/null
+      new_mode=wallpaper
     else
-      wallrack state set picker_mode we >/dev/null
+      new_mode=we
     fi
+    wallrack state set picker_mode "$new_mode" >/dev/null
     wallrack state set view_mode all >/dev/null
     wallrack state unset drill_path >/dev/null
     wallrack state unset tag_filter >/dev/null
     wallrack state unset tag_mode >/dev/null
+    ensure_index "$new_mode"
     wallrack view
     exit 0
     ;;
