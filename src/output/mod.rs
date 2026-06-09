@@ -6,6 +6,7 @@ use clap::ValueEnum;
 
 use crate::entry::Entry;
 
+pub mod raffi;
 pub mod rofi;
 pub mod walker;
 pub mod wofi;
@@ -18,6 +19,9 @@ pub enum Format {
     Walker,
     /// Wofi dmenu with `img:` prefix; routing payload tacked on after U+001F.
     Wofi,
+    /// Raffi YAML config: one launcher per row, payload stuffed into
+    /// `echo`'s args so `raffi --print-only` echoes it back.
+    Raffi,
     /// JSON array of entries — for any other picker / programmatic use.
     Json,
 }
@@ -62,6 +66,7 @@ pub fn write_rows<W: Write>(
         Format::Rofi => rofi::write(w, rows, hints),
         Format::Walker => walker::write(w, rows, hints),
         Format::Wofi => wofi::write(w, rows, hints),
+        Format::Raffi => raffi::write(w, rows, hints),
         Format::Json => write_json(w, rows),
     }
 }

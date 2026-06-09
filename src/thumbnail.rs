@@ -6,8 +6,11 @@ use anyhow::{Context, Result};
 use image::{DynamicImage, GrayImage, RgbImage};
 use image::imageops::FilterType;
 
-/// Generate a square center-cropped thumbnail at `size`x`size`. JPEG output.
-/// Skips work when the destination is newer than the source.
+/// Generate a square center-cropped thumbnail at `size`x`size`. The output
+/// format is inferred from `dst`'s extension by the `image` crate — wallrack
+/// writes `.png` (see `thumb_filename_for`) so fuzzel's libpng-only icon
+/// renderer can display the result. Skips work when the destination is newer
+/// than the source.
 pub fn generate(src: &Path, dst: &Path, size: u32) -> Result<()> {
     if up_to_date(src, dst) {
         return Ok(());

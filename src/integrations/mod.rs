@@ -131,5 +131,8 @@ pub fn thumb_filename_for(source: &Path) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or("entry")
         .replace('/', "_");
-    format!("{hex}_{stem}.{ext}.jpg")
+    // PNG output — fuzzel's icon renderer only links libpng + libresvg, so
+    // JPG/GIF thumbs would never render in dmenu mode. rofi/wofi/walker all
+    // handle PNG too, so this is the lowest-common-denominator format.
+    format!("{hex}_{stem}.{ext}.png")
 }

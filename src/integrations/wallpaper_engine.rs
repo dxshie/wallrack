@@ -16,7 +16,9 @@ use crate::config::Config;
 use crate::entry::{Entry, Index};
 use crate::integrations::Integration;
 use crate::integrations::backend;
+use crate::integrations::thumb_filename_for;
 use crate::paths::{Paths, atomic_write};
+use crate::thumbnail;
 
 pub const NAME: &str = "we";
 
@@ -51,6 +53,8 @@ impl Integration for WallpaperEngineIntegration {
                 workshop.display()
             ));
         }
+        let thumbs_dir = paths.thumbs_dir(NAME);
+        let thumb_size = config.thumbnails.size;
 
         // Each <workshop>/<id>/project.json is one entry.
         let project_dirs: Vec<PathBuf> = std::fs::read_dir(&workshop)?
@@ -61,7 +65,7 @@ impl Integration for WallpaperEngineIntegration {
 
         let entries: Vec<Entry> = project_dirs
             .par_iter()
-            .filter_map(|dir| build_we_entry(dir).ok())
+            .filter_map(|dir| build_we_entry(dir, &thumbs_dir, thumb_size).ok())
             .collect();
 
         let index = Index { integration: NAME.to_string(), entries };
@@ -135,7 +139,7 @@ impl Integration for WallpaperEngineIntegration {
     }
 }
 
-fn build_we_entry(dir: &Path) -> Result<Entry> {
+fn build_we_entry(dir: &Path, thumbs_dir: &Path, thumb_size: u32) -> Result<Entry> {
     let project_json = dir.join("project.json");
     let workshop_id = dir
         .file_name()
@@ -151,7 +155,22 @@ fn build_we_entry(dir: &Path) -> Result<Entry> {
     let rating = meta.contentrating.unwrap_or_default();
     let tags = meta.tags.unwrap_or_default();
     let preview = meta.preview.unwrap_or_default();
-    let thumb = if preview.is_empty() { PathBuf::new() } else { dir.join(&preview) };
+    // Workshop previews are typically JPG or animated GIF — neither renders
+    // in fuzzel's libpng-only icon decoder. Run them through thumbnail::generate
+    // so the cached thumb is a static PNG every picker can display. If
+    // thumbnail generation fails (corrupt preview, unsupported codec) we fall
+    // back to an empty thumb path; pickers skip the icon column gracefully.
+    let thumb = if preview.is_empty() {
+        PathBuf::new()
+    } else {
+        let preview_path = dir.join(&preview);
+        let dst = thumbs_dir.join(thumb_filename_for(&preview_path));
+        if thumbnail::generate(&preview_path, &dst, thumb_size).is_ok() {
+            dst
+        } else {
+            PathBuf::new()
+        }
+    };
 
     Ok(Entry {
         integration: NAME.to_string(),

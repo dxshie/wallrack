@@ -1168,7 +1168,7 @@ fn cmd_tags(paths: &Paths, integration: Option<&str>, format: Format) -> Result<
             let list: Vec<&str> = tag_thumb.keys().copied().collect();
             serde_json::to_writer(&mut out, &list)?;
         }
-        Format::Rofi | Format::Walker | Format::Wofi => {
+        Format::Rofi | Format::Walker | Format::Wofi | Format::Raffi => {
             // Header + "All tags" reset row + one row per tag.
             let mut rows: Vec<Row<'_>> = Vec::new();
             rows.push(Row::Control {
@@ -1278,7 +1278,7 @@ fn cmd_tag(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
                 // Plain-text formats. The picker scripts feed this list as
                 // candidate input to their search box; no icons or routing
                 // info is needed here.
-                Format::Rofi | Format::Walker | Format::Wofi => {
+                Format::Rofi | Format::Walker | Format::Wofi | Format::Raffi => {
                     for t in tags {
                         println!("{t}");
                     }
@@ -1371,7 +1371,7 @@ fn cmd_favorites(paths: &Paths, cmd: FavoritesCmd) -> Result<ExitCode> {
                     serde_json::to_writer(stdout, &ids)?;
                 }
                 // Plain id-per-line — every picker can consume that.
-                Format::Rofi | Format::Walker | Format::Wofi => {
+                Format::Rofi | Format::Walker | Format::Wofi | Format::Raffi => {
                     for id in ids {
                         println!("{id}");
                     }
@@ -1485,7 +1485,7 @@ fn cmd_monitors(
                 .collect();
             serde_json::to_writer(&mut out, &list)?;
         }
-        Format::Rofi | Format::Walker | Format::Wofi => {
+        Format::Rofi | Format::Walker | Format::Wofi | Format::Raffi => {
             // One row per monitor. The `info` payload carries the entry id
             // (image path or WE folder) so the wrapper can route the apply
             // call after the user picks a monitor.
