@@ -1,15 +1,12 @@
 # wallrack — full example config with all defaults spelled out.
 # Copy to ~/.config/wallrack/config.toml and adjust for your setup.
 # First run also writes a minimal default config to that path automatically.
-#
-# TOML rule: bare root-level keys (like post_apply_hook) must appear BEFORE
-# any [section] headers. Once a [section] opens, all keys until the next
-# [section] belong to that sub-table.
 
-# ─── post-apply hook ──────────────────────────────────────────────────────────
-# Shell command executed after every successful `wallrack apply`.
-# Runs blocking in sh -c; a non-zero exit prints a warning but does not
-# fail the apply itself.
+# ─── apply hooks ──────────────────────────────────────────────────────────────
+# Shell commands executed around every successful `wallrack apply`.
+# Both run blocking in sh -c; a non-zero exit prints a warning but does not
+# fail the apply itself. pre_apply_hook fires before the backend apply_cmd,
+# post_apply_hook fires after.
 #
 # Available environment variables:
 #   WALLRACK_WALLPAPER    image path (wallpaper / we_image) or WE project
@@ -17,24 +14,36 @@
 #   WALLRACK_MONITOR      monitor name as returned by monitors_cmd
 #   WALLRACK_INTEGRATION  one of: wallpaper  we_image  we
 #
-# The script below mirrors the theming logic that used to live in the picker
-# scripts:
+# The post_apply_hook below mirrors the theming logic that used to live in the
+# picker scripts:
 #   wallpaper / we_image  run matugen on the image
 #   we                    extract the project.json preview path and run
 #                         matugen on that image
 #
-# Tip: for more complex workflows point this at an external script instead:
+# Tip: for more complex workflows point a hook at an external script instead:
 #   post_apply_hook = "~/.config/wallrack/post-apply.sh"
 
+[hooks]
+pre_apply_hook = ""
 post_apply_hook = """
-if [ "$WALLRACK_INTEGRATION" = "we" ]; then
-    preview=$(jq -r '.preview // ""' "$WALLRACK_WALLPAPER/project.json" 2>/dev/null)
-    if [ -n "$preview" ] && [ -f "$WALLRACK_WALLPAPER/$preview" ]; then
-        matugen image "$WALLRACK_WALLPAPER/$preview" --source-color-index 0 --lightness-dark 0.0 --lightness-light 0.0 -t scheme-content
+if command -v matugen >/dev/null 2>&1; then
+    if [ "$WALLRACK_INTEGRATION" = "we" ]; then
+        preview=$(jq -r '.preview // ""' "$WALLRACK_WALLPAPER/project.json" 2>/dev/null)
+        if [ -n "$preview" ] && [ -f "$WALLRACK_WALLPAPER/$preview" ]; then
+            matugen image "$WALLRACK_WALLPAPER/$preview" \
+                --source-color-index 0 \
+                --lightness-dark 0.0 \
+                --lightness-light 0.0 \
+                -t scheme-content
+        fi
+    else
+        matugen image "$WALLRACK_WALLPAPER" \
+            --source-color-index 0 \
+            --lightness-dark 0.0 \
+            --lightness-light 0.0 \
+            -t scheme-content
+
     fi
-else
-    matugen image "$WALLRACK_WALLPAPER" --source-color-index 0 --lightness-dark 0.0 --lightness-light 0.0 -t scheme-content
-    "${XDG_CONFIG_HOME:-$HOME/.config}/mako/update-theme.sh"
 fi
 """
 

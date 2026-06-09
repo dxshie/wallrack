@@ -37,7 +37,8 @@ tag overrides, and per-integration backend commands:
   so successive frontend invocations stay coherent.
 - **Apply** — sets a wallpaper on a specific monitor via the configured
   backend command (default: `awww` for images, `linux-wallpaperengine` for WE
-  projects). Runs `post_apply_hook` afterwards if configured.
+  projects). Runs `[hooks].pre_apply_hook` before and
+  `[hooks].post_apply_hook` after if configured.
 - **Daemon** (optional) — watches source directories and re-indexes
   incrementally when content changes.
 
@@ -108,7 +109,8 @@ minimal sane config (the maintainer's reference setup, hyprland + awww, is
 baked in as defaults — you only set backend keys to override):
 
 ```toml
-# Root-level keys must come before any [section] header.
+[hooks]
+# pre_apply_hook  = ""
 # post_apply_hook = "matugen image \"$WALLRACK_WALLPAPER\""
 
 [thumbnails]
@@ -311,8 +313,9 @@ the place of Alt+1..6 and a sub-menu opens after picking an entry for the
 apply / favorite / edit-tags actions.
 
 Post-apply theming (matugen, mako scripts, etc.) is not handled by the
-picker scripts. Configure `post_apply_hook` in `config.toml` instead —
-wallrack runs that command after every successful apply regardless of which
+picker scripts. Configure `[hooks].post_apply_hook` (or
+`[hooks].pre_apply_hook` for prep work) in `config.toml` instead — wallrack
+runs those commands around every successful apply regardless of which
 frontend triggered it.
 
 ## Writing your own frontend

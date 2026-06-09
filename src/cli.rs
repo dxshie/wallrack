@@ -1628,17 +1628,33 @@ fn cmd_apply(
         .find(|e| e.id == target)
         .cloned()
         .ok_or_else(|| anyhow!("entry not in index: {target}"))?;
-    integ.apply(&entry, monitor, paths, config)?;
-    if !config.post_apply_hook.is_empty() {
-        log::info!("running post_apply_hook");
+    if !config.hooks.pre_apply_hook.is_empty() {
+        log::info!("running pre_apply_hook");
         let status = Command::new("sh")
             .arg("-c")
-            .arg(&config.post_apply_hook)
+            .arg(&config.hooks.pre_apply_hook)
             .env("WALLRACK_WALLPAPER", target)
             .env("WALLRACK_MONITOR", monitor)
             .env("WALLRACK_INTEGRATION", &integration)
             .status()
-            .with_context(|| format!("spawn post_apply_hook `{}`", config.post_apply_hook))?;
+            .with_context(|| format!("spawn pre_apply_hook `{}`", config.hooks.pre_apply_hook))?;
+        if !status.success() {
+            log::warn!("pre_apply_hook exited with {status}");
+        }
+    } else {
+        log::debug!("pre_apply_hook not set, skipping");
+    }
+    integ.apply(&entry, monitor, paths, config)?;
+    if !config.hooks.post_apply_hook.is_empty() {
+        log::info!("running post_apply_hook");
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(&config.hooks.post_apply_hook)
+            .env("WALLRACK_WALLPAPER", target)
+            .env("WALLRACK_MONITOR", monitor)
+            .env("WALLRACK_INTEGRATION", &integration)
+            .status()
+            .with_context(|| format!("spawn post_apply_hook `{}`", config.hooks.post_apply_hook))?;
         if !status.success() {
             log::warn!("post_apply_hook exited with {status}");
         }
@@ -1766,17 +1782,16 @@ fn cmd_info(paths: &Paths, config: &Config) -> Result<ExitCode> {
         c.reset,
         config.we_workshop_dir().display()
     );
-    if config.post_apply_hook.is_empty() {
-        println!("{}post_apply_hook:{}       {}(not set){}", c.bold, c.reset, c.dim, c.reset);
-    } else {
-        let preview: String = config.post_apply_hook
-            .lines()
-            .next()
-            .unwrap_or("")
-            .chars()
-            .take(60)
-            .collect();
-        println!("{}post_apply_hook:{}       {}{}…{}", c.bold, c.reset, c.cyan, preview, c.reset);
-    }
+    print_hook(&c, "pre_apply_hook", &config.hooks.pre_apply_hook);
+    print_hook(&c, "post_apply_hook", &config.hooks.post_apply_hook);
     Ok(ExitCode::SUCCESS)
+}
+
+fn print_hook(c: &C, label: &str, body: &str) {
+    if body.is_empty() {
+        println!("{}{}:{}       {}(not set){}", c.bold, label, c.reset, c.dim, c.reset);
+    } else {
+        let preview: String = body.lines().next().unwrap_or("").chars().take(60).collect();
+        println!("{}{}:{}       {}{}…{}", c.bold, label, c.reset, c.cyan, preview, c.reset);
+    }
 }
