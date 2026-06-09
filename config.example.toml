@@ -95,7 +95,7 @@ workshop_dir = "~/.local/share/Steam/steamapps/workshop/content/431960"
 # linux-wallpaperengine is launched detached via setsid. Any previously
 # running instance is killed and waited for before this command is spawned,
 # so the template only needs to launch the new one.
-apply_cmd    = 'uwsm app -- linux-wallpaperengine --screenshot-delay 1000 --screenshot ~/.cache/lock.jpg --disable-web-security --autoplay-policy=no-user-gesture-required --no-audio-processing --disable-parallax --silent --no-fullscreen-pause --scaling fill --screen-root "{{monitor}}" --bg "{{workshop_id}}"'
+apply_cmd    = 'uwsm app -- linux-wallpaperengine --screenshot-delay 1000 --screenshot ~/.cache/lock.jpg --autoplay-policy=no-user-gesture-required --no-audio-processing --disable-parallax --silent --no-fullscreen-pause --scaling fill --screen-root "{{monitor}}" --bg "{{workshop_id}}"'
 monitors_cmd = "hyprctl monitors | awk '/^Monitor / {print $2}'"
 # current_image_cmd is not used for the we integration — wallrack tracks
 # per-monitor WE state internally.

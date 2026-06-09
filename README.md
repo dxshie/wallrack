@@ -79,7 +79,7 @@ always install the release binary.
 ```nix
 # flake.nix
 {
-  inputs.wallrack.url = "github:youruser/wallrack";
+  inputs.wallrack.url = "github:dxshie/wallrack";
   outputs = { self, nixpkgs, wallrack, ... }: {
     # NixOS
     nixosConfigurations.host = nixpkgs.lib.nixosSystem {
@@ -150,7 +150,7 @@ current_image_cmd = "awww query | sed -nE 's/^[ :]*([^:]+):.*image: (.+)$/\\1\\t
 # Live WE projects — launched detached via setsid; any running
 # linux-wallpaperengine is killed and waited for before this fires.
 [wallpaper_engine.backend]
-apply_cmd    = 'uwsm app -- linux-wallpaperengine --screenshot-delay 1000 --disable-web-security --autoplay-policy=no-user-gesture-required --no-audio-processing --disable-parallax --silent --no-fullscreen-pause --scaling fill --screen-root "{{monitor}}" --bg "{{workshop_id}}"'
+apply_cmd    = 'uwsm app -- linux-wallpaperengine --screenshot-delay 1000 --screenshot ~/.cache/lock.jpg --autoplay-policy=no-user-gesture-required --no-audio-processing --disable-parallax --silent --no-fullscreen-pause --scaling fill --screen-root "{{monitor}}" --bg "{{workshop_id}}"'
 monitors_cmd = "hyprctl monitors | awk '/^Monitor / {print $2}'"
 ```
 
