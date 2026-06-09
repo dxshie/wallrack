@@ -6,7 +6,7 @@ use clap::ValueEnum;
 
 use crate::entry::Entry;
 
-pub mod raffi;
+pub mod fuzzel;
 pub mod rofi;
 pub mod walker;
 pub mod wofi;
@@ -19,9 +19,7 @@ pub enum Format {
     Walker,
     /// Wofi dmenu with `img:` prefix; routing payload tacked on after U+001F.
     Wofi,
-    /// Raffi YAML config: one launcher per row, payload stuffed into
-    /// `echo`'s args so `raffi --print-only` echoes it back.
-    Raffi,
+    Fuzzel,
     /// JSON array of entries — for any other picker / programmatic use.
     Json,
 }
@@ -66,17 +64,22 @@ pub fn write_rows<W: Write>(
         Format::Rofi => rofi::write(w, rows, hints),
         Format::Walker => walker::write(w, rows, hints),
         Format::Wofi => wofi::write(w, rows, hints),
-        Format::Raffi => raffi::write(w, rows, hints),
+        Format::Fuzzel => fuzzel::write(w, rows, hints),
         Format::Json => write_json(w, rows),
     }
 }
 
 fn write_json<W: Write>(w: &mut W, rows: &[Row<'_>]) -> Result<()> {
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
     let arr: Vec<Value> = rows
         .iter()
         .filter_map(|row| match row {
-            Row::Entry { entry, favorite, label, info } => Some(json!({
+            Row::Entry {
+                entry,
+                favorite,
+                label,
+                info,
+            } => Some(json!({
                 "integration": entry.integration,
                 "id": entry.id,
                 "title": label.clone().unwrap_or_else(|| entry.title.clone()),

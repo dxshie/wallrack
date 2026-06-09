@@ -537,7 +537,8 @@ fn cmd_index(paths: &Paths, config: &Config, integration: &str) -> Result<ExitCo
     }
 
     if catalog_dirty {
-        catalog.save(&catalog_path)
+        catalog
+            .save(&catalog_path)
             .with_context(|| format!("save tag catalog {}", catalog_path.display()))?;
     }
 
@@ -622,7 +623,13 @@ fn cmd_list(
     let mut out = BufWriter::new(stdout);
 
     if filtered.is_empty() && folder.is_none() {
-        emit_empty_view(&mut out, &integration, favorites_only, tag.as_deref(), format)?;
+        emit_empty_view(
+            &mut out,
+            &integration,
+            favorites_only,
+            tag.as_deref(),
+            format,
+        )?;
         out.flush()?;
         return Ok(ExitCode::SUCCESS);
     }
@@ -1168,7 +1175,7 @@ fn cmd_tags(paths: &Paths, integration: Option<&str>, format: Format) -> Result<
             let list: Vec<&str> = tag_thumb.keys().copied().collect();
             serde_json::to_writer(&mut out, &list)?;
         }
-        Format::Rofi | Format::Walker | Format::Wofi | Format::Raffi => {
+        Format::Rofi | Format::Walker | Format::Wofi | Format::Fuzzel => {
             // Header + "All tags" reset row + one row per tag.
             let mut rows: Vec<Row<'_>> = Vec::new();
             rows.push(Row::Control {
@@ -1202,7 +1209,11 @@ fn cmd_tag(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
     let catalog_path = paths.tag_catalog_file();
     let mut overrides = crate::tags::TagOverrides::load(&tags_path)?;
     match cmd {
-        TagCmd::Add { integration, id, tag } => {
+        TagCmd::Add {
+            integration,
+            id,
+            tag,
+        } => {
             overrides.add(integration.as_str(), &id, &tag);
             overrides.save(&tags_path)?;
             // Newly-added tags should be immediately suggestable in the
@@ -1213,11 +1224,19 @@ fn cmd_tag(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
                 catalog.save(&catalog_path)?;
             }
         }
-        TagCmd::Remove { integration, id, tag } => {
+        TagCmd::Remove {
+            integration,
+            id,
+            tag,
+        } => {
             overrides.remove(integration.as_str(), &id, &tag);
             overrides.save(&tags_path)?;
         }
-        TagCmd::Set { integration, id, tags } => {
+        TagCmd::Set {
+            integration,
+            id,
+            tags,
+        } => {
             // Need the native tag set to compute a minimal override that
             // survives index regeneration. If the entry isn't in the index
             // yet, fall back to "no native tags" — the override just becomes
@@ -1228,13 +1247,23 @@ fn cmd_tag(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
                     // read_index already applies overrides; recover the
                     // native tags by stripping this entry's current
                     // overrides off the effective set we got back.
-                    let effective = idx.entries.iter().find(|e| e.id == id)
-                        .map(|e| e.tags.clone()).unwrap_or_default();
-                    let prior = overrides.get(integration.as_str(), &id).cloned().unwrap_or_default();
+                    let effective = idx
+                        .entries
+                        .iter()
+                        .find(|e| e.id == id)
+                        .map(|e| e.tags.clone())
+                        .unwrap_or_default();
+                    let prior = overrides
+                        .get(integration.as_str(), &id)
+                        .cloned()
+                        .unwrap_or_default();
                     // native = (effective ∪ prior.removed) \ prior.added
-                    let mut native: std::collections::BTreeSet<String> = effective.into_iter().collect();
+                    let mut native: std::collections::BTreeSet<String> =
+                        effective.into_iter().collect();
                     native.extend(prior.removed.iter().cloned());
-                    for added in &prior.added { native.remove(added); }
+                    for added in &prior.added {
+                        native.remove(added);
+                    }
                     native.into_iter().collect()
                 }
                 Err(_) => Vec::new(),
@@ -1260,12 +1289,17 @@ fn cmd_tag(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
                 return Err(anyhow!("entry not in index: {id}"));
             }
         }
-        TagCmd::Available { integration, format } => {
+        TagCmd::Available {
+            integration,
+            format,
+        } => {
             let integration: String = match integration {
                 Some(s) => s.as_str().to_string(),
                 None => {
                     let state = State::load(&paths.state_file())?;
-                    state.get_or(state::keys::PICKER_MODE, "wallpaper").to_string()
+                    state
+                        .get_or(state::keys::PICKER_MODE, "wallpaper")
+                        .to_string()
                 }
             };
             let catalog = crate::tags::TagCatalog::load(&catalog_path)?;
@@ -1278,7 +1312,7 @@ fn cmd_tag(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
                 // Plain-text formats. The picker scripts feed this list as
                 // candidate input to their search box; no icons or routing
                 // info is needed here.
-                Format::Rofi | Format::Walker | Format::Wofi | Format::Raffi => {
+                Format::Rofi | Format::Walker | Format::Wofi | Format::Fuzzel => {
                     for t in tags {
                         println!("{t}");
                     }
@@ -1291,7 +1325,11 @@ fn cmd_tag(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
                 catalog.save(&catalog_path)?;
             }
         }
-        TagCmd::Delete { integration, cascade, tag } => {
+        TagCmd::Delete {
+            integration,
+            cascade,
+            tag,
+        } => {
             let mut catalog = crate::tags::TagCatalog::load(&catalog_path)?;
             catalog.remove(integration.as_str(), &tag);
             catalog.save(&catalog_path)?;
@@ -1324,7 +1362,11 @@ fn cmd_rating(paths: &Paths, cmd: RatingCmd) -> Result<ExitCode> {
     let path = paths.rating_overrides_file();
     let mut overrides = crate::rating::RatingOverrides::load(&path)?;
     match cmd {
-        RatingCmd::Set { integration, id, rating } => {
+        RatingCmd::Set {
+            integration,
+            id,
+            rating,
+        } => {
             overrides.set(integration.as_str(), &id, rating);
             overrides.save(&path)?;
         }
@@ -1371,7 +1413,7 @@ fn cmd_favorites(paths: &Paths, cmd: FavoritesCmd) -> Result<ExitCode> {
                     serde_json::to_writer(stdout, &ids)?;
                 }
                 // Plain id-per-line — every picker can consume that.
-                Format::Rofi | Format::Walker | Format::Wofi | Format::Raffi => {
+                Format::Rofi | Format::Walker | Format::Wofi | Format::Fuzzel => {
                     for id in ids {
                         println!("{id}");
                     }
@@ -1485,15 +1527,35 @@ fn cmd_monitors(
                 .collect();
             serde_json::to_writer(&mut out, &list)?;
         }
-        Format::Rofi | Format::Walker | Format::Wofi | Format::Raffi => {
-            // One row per monitor. The `info` payload carries the entry id
-            // (image path or WE folder) so the wrapper can route the apply
-            // call after the user picks a monitor.
+        Format::Rofi => {
+            // Rofi uses $selection (the label) as the monitor name and
+            // ROFI_INFO (the info field) as the target to apply — so target
+            // must be in info here.
             let rows: Vec<Row<'_>> = monitors
                 .iter()
                 .map(|m| Row::Control {
                     label: m.clone(),
                     info: target.unwrap_or_default().to_string(),
+                    icon: thumbs.get(m).cloned(),
+                })
+                .collect();
+            let hints = ViewHints {
+                prompt: "Monitor".to_string(),
+                message: String::new(),
+                use_hot_keys: false,
+            };
+            write_rows(&mut out, &rows, &hints, format)?;
+        }
+        Format::Walker | Format::Fuzzel | Format::Wofi => {
+            // dmenu pickers (walker/fuzzel/wofi) return the payload column of
+            // the selected row, so put the monitor name there. The target is
+            // already known by the caller and does not need to be round-tripped
+            // through the picker.
+            let rows: Vec<Row<'_>> = monitors
+                .iter()
+                .map(|m| Row::Control {
+                    label: m.clone(),
+                    info: m.clone(),
                     icon: thumbs.get(m).cloned(),
                 })
                 .collect();
@@ -1524,8 +1586,12 @@ fn current_thumbs(
             return HashMap::new();
         }
         let idx_path = paths.index_file("we");
-        let Ok(raw) = std::fs::read_to_string(&idx_path) else { return HashMap::new() };
-        let Ok(idx) = serde_json::from_str::<Index>(&raw) else { return HashMap::new() };
+        let Ok(raw) = std::fs::read_to_string(&idx_path) else {
+            return HashMap::new();
+        };
+        let Ok(idx) = serde_json::from_str::<Index>(&raw) else {
+            return HashMap::new();
+        };
         let by_workshop: HashMap<String, PathBuf> = idx
             .entries
             .into_iter()
@@ -1536,7 +1602,9 @@ fn current_thumbs(
             .filter_map(|(mon, wid)| by_workshop.get(&wid).cloned().map(|t| (mon, t)))
             .collect();
     }
-    let Ok(integ) = integrations::by_name(integration) else { return HashMap::new() };
+    let Ok(integ) = integrations::by_name(integration) else {
+        return HashMap::new();
+    };
     integrations::backend::run_current_image(&integ.merged_backend(config))
 }
 

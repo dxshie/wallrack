@@ -11,7 +11,7 @@
 # prefixes (`image:`, `folder:`, `tag:`, `back:`, `tagedit:*`, `action:*`,
 # `noop:*`) match the rofi/wofi scripts verbatim.
 #
-# Hard requirements: fuzzel (>=1.8.2 for absolute icon paths), wallrack, jq.
+# Hard requirements: fuzzel (>=1.8.2 for absolute icon paths), wallrack.
 # Soft requirements: hyprland, swww, linux-wallpaperengine, notify-send,
 # mako, matugen.
 
@@ -141,18 +141,11 @@ entry_action_menu() {
   } | fuzzel_pick "$label"
 }
 
-# Build a monitor picker on the fly. The walker writer puts target in the
-# payload column for every monitor row, so all rows would look identical to
-# `--index` consumers — we'd lose which monitor was picked. JSON gives us
-# `name` and `current_icon` per monitor, which is exactly what we need.
 pick_monitor() {
   local target="$1" mode="$2"
   local sel
-  sel=$(
-    wallrack monitors --integration="$mode" --target="$target" --format=json \
-      | jq -r '.[] | [.name, (.current_icon // ""), .name] | @tsv' \
-      | fuzzel_pick "Monitor"
-  ) || return 1
+  sel=$(wallrack monitors --integration="$mode" --target="$target" --format=fuzzel \
+        | fuzzel_pick "Monitor") || return 1
   printf '%s' "$sel"
 }
 
@@ -208,11 +201,11 @@ while true; do
     # Sub-views: render exactly what wallrack emits, no extra header — same
     # logic as the wofi wrapper to avoid tempting the user into a mode
     # change mid-edit.
-    selection=$(wallrack view --format=walker | fuzzel_pick "$prompt") || selection=""
+    selection=$(wallrack view --format=fuzzel | fuzzel_pick "$prompt") || selection=""
   else
     selection=$(
       { header_rows "$picker_mode" "$view_mode" "$tag_filter" "$rating" "$drill"
-        wallrack view --format=walker
+        wallrack view --format=fuzzel
       } | fuzzel_pick "$prompt"
     ) || selection=""
   fi
@@ -292,7 +285,7 @@ while true; do
       if [[ "$view_mode" == "favorites" ]]; then
         wallrack state set view_mode all >/dev/null
       else
-        fav_count=$(wallrack favorites list --integration="$picker_mode" --format=json | jq 'length' 2>/dev/null || echo 0)
+        fav_count=$(wallrack favorites list --integration="$picker_mode" --format=fuzzel | wc -l)
         if [[ "$fav_count" == "0" ]]; then
           notify-send "${NOTIFY_OPTIONS[@]}" "No favorites yet — favorite an entry first." 2>/dev/null || true
         else
@@ -345,7 +338,7 @@ while true; do
           result=$(wallrack favorites toggle --integration="$picker_mode" "$target")
           notify-send "${NOTIFY_OPTIONS[@]}" "$result favorite: ${target##*/}" 2>/dev/null || true
           if [[ "$view_mode" == "favorites" ]]; then
-            fav_count=$(wallrack favorites list --integration="$picker_mode" --format=json | jq 'length' 2>/dev/null || echo 0)
+            fav_count=$(wallrack favorites list --integration="$picker_mode" --format=fuzzel | wc -l)
             if [[ "$fav_count" == "0" ]]; then
               wallrack state set view_mode all >/dev/null
             fi

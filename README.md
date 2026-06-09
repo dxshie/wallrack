@@ -256,12 +256,8 @@ is documented in `rofi-script(5)` — each row carries `icon` and `info`
 metadata so a picker that supports script mode can render thumbnails and
 route selections without parsing the display text.
 
-`--format=wofi`, `--format=walker`, and `--format=raffi` emit dmenu-ish
-variants for the respective launchers. Raffi (https://github.com/chmouel/raffi)
-reads YAML config; the writer emits a `version: 1` / `launchers:` block with
-each row's routing payload stuffed into `echo`'s args, so
-`raffi --print-only` echoes it back for the wrapper to parse.
-
+`--format=wofi`, `--format=walker`, and `--format=fuzzel` emit dmenu-ish
+variants for the respective launchers.
 `--format=json` is the format for any non-rofi frontend. Entries look like:
 
 ```json
@@ -309,14 +305,6 @@ lack rofi's script-mode keybindings, so the action header rows
 (`⊕ mode: …`, `⊕ view: …`, `⊕ tag: …`, `⊕ rating: …`, `⊕ refresh`) take
 the place of Alt+1..6 and a sub-menu opens after picking an entry for the
 apply / favorite / edit-tags actions.
-
-The fuzzel picker drives `fuzzel --dmenu --index` directly, *not* via the
-raffi launcher. Going through raffi would shuffle entries (its launcher map
-is a `HashMap` and `--cache` adds MRU bias) and drop the thumbnails (its
-`icon:` field only resolves icon-theme names, not absolute paths). The
-`--format=raffi` writer is still kept around for static raffi configs —
-generate a wallrack YAML once and bind it to a key if you want a small
-fixed launcher.
 
 ## Writing your own frontend
 
