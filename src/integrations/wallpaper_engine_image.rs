@@ -43,21 +43,18 @@ impl Integration for WallpaperEngineImageIntegration {
 
         let workshop = config.we_image_workshop_dir();
         if !workshop.is_dir() {
-            eprintln!(
-                "wallrack: we_image: workshop dir not found: {}",
-                workshop.display()
-            );
+            log::warn!("we_image: workshop dir not found: {}", workshop.display());
             let index = Index { integration: NAME.to_string(), entries: Vec::new() };
             crate::integrations::write_index(paths, &index)?;
             return Ok(index);
         }
 
-        eprintln!("wallrack: we_image: scanning workshop {}", workshop.display());
+        log::info!("we_image: scanning workshop {}", workshop.display());
         let mut sources: Vec<EntrySource> = Vec::new();
         collect_workshop_images(&workshop, &mut sources)?;
 
         let total = sources.len();
-        eprintln!("wallrack: we_image: {total} images found, generating thumbnails...");
+        log::info!("we_image: {total} images found, generating thumbnails...");
 
         let progress = Progress::new("we_image", total);
         let entries: Vec<Entry> = sources

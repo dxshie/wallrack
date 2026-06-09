@@ -33,15 +33,15 @@ impl Integration for WallpaperIntegration {
         let mut sources: Vec<EntrySource> = Vec::new();
         for dir in config.wallpaper_dirs() {
             if !dir.is_dir() {
-                eprintln!("wallrack: wallpaper dir not found, skipping: {}", dir.display());
+                log::warn!("wallpaper dir not found, skipping: {}", dir.display());
                 continue;
             }
-            eprintln!("wallrack: wallpaper: scanning {}", dir.display());
+            log::info!("wallpaper: scanning {}", dir.display());
             collect_images(&dir, &mut sources);
         }
 
         let total = sources.len();
-        eprintln!("wallrack: wallpaper: {total} images found, generating thumbnails...");
+        log::info!("wallpaper: {total} images found, generating thumbnails...");
 
         let progress = Progress::new("wallpaper", total);
         let entries: Vec<Entry> = sources

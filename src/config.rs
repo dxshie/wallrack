@@ -16,6 +16,11 @@ pub struct Config {
     pub wallpaper_engine_image: WallpaperEngineImageConfig,
     #[serde(default)]
     pub wallpaper_engine: WallpaperEngineConfig,
+    /// Shell command run after every successful `wallrack apply`. Executed via
+    /// `sh -c` with `WALLRACK_WALLPAPER`, `WALLRACK_MONITOR`, and
+    /// `WALLRACK_INTEGRATION` set. Leave empty to skip.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub post_apply_hook: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +103,7 @@ impl Default for Config {
             wallpaper: WallpaperConfig::default(),
             wallpaper_engine_image: WallpaperEngineImageConfig::default(),
             wallpaper_engine: WallpaperEngineConfig::default(),
+            post_apply_hook: String::new(),
         }
     }
 }

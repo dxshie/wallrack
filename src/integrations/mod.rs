@@ -67,9 +67,8 @@ pub trait Integration {
     fn backend<'a>(&self, config: &'a Config) -> &'a crate::config::BackendConfig;
 
     /// Per-integration backend defaults — used to fill in any field the user
-    /// did not set in `config.toml`. Keeps the tool usable out of the box on
-    /// the maintainer's reference setup (hyprland + awww) while letting
-    /// other users override per backend in config.
+    /// did not set in `config.toml`. Override any of these in the
+    /// `[<integration>.backend]` section of `config.toml`.
     fn default_backend(&self) -> crate::config::BackendConfig {
         crate::config::BackendConfig::default()
     }

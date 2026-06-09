@@ -109,7 +109,7 @@ impl<'a> Daemon<'a> {
         // Initial indexing pass so the daemon is immediately useful.
         for integ in &integrations {
             if let Err(err) = integ.index(self.paths, config) {
-                eprintln!("wallrack: initial index of {} failed: {err:#}", integ.name());
+                log::error!("initial index of {} failed: {err:#}", integ.name());
             }
         }
 
@@ -129,7 +129,7 @@ impl<'a> Daemon<'a> {
                 watched.push((dir, integ.name()));
             }
         }
-        println!("wallrack: watching {} dir(s)", watched.len());
+        log::info!("watching {} dir(s)", watched.len());
 
         loop {
             match rx.recv() {
@@ -148,15 +148,15 @@ impl<'a> Daemon<'a> {
                     for name in affected {
                         let Ok(integ) = integrations::by_name(name) else { continue };
                         notify_processing(name);
-                        eprintln!("wallrack: re-indexing {name}");
+                        log::info!("re-indexing {name}");
                         if let Err(err) = integ.index(self.paths, config) {
-                            eprintln!("wallrack: re-index of {name} failed: {err:#}");
+                            log::error!("re-index of {name} failed: {err:#}");
                         }
                     }
                 }
                 Ok(Err(errs)) => {
                     for e in errs {
-                        eprintln!("wallrack: watch error: {e:?}");
+                        log::warn!("watch error: {e:?}");
                     }
                 }
                 Err(_) => break, // channel closed

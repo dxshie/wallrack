@@ -1,0 +1,92 @@
+# wallrack — full example config with all defaults spelled out.
+# Copy to ~/.config/wallrack/config.toml and adjust for your setup.
+# First run also writes a minimal default config to that path automatically.
+#
+# TOML rule: bare root-level keys (like post_apply_hook) must appear BEFORE
+# any [section] headers. Once a [section] opens, all keys until the next
+# [section] belong to that sub-table.
+
+# ─── post-apply hook ──────────────────────────────────────────────────────────
+# Shell command executed after every successful `wallrack apply`.
+# Runs blocking in sh -c; a non-zero exit prints a warning but does not
+# fail the apply itself.
+#
+# Available environment variables:
+#   WALLRACK_WALLPAPER    image path (wallpaper / we_image) or WE project
+#                         folder path (we)
+#   WALLRACK_MONITOR      monitor name as returned by monitors_cmd
+#   WALLRACK_INTEGRATION  one of: wallpaper  we_image  we
+#
+# The script below mirrors the theming logic that used to live in the picker
+# scripts:
+#   wallpaper / we_image  run matugen on the image
+#   we                    extract the project.json preview path and run
+#                         matugen on that image
+#
+# Tip: for more complex workflows point this at an external script instead:
+#   post_apply_hook = "~/.config/wallrack/post-apply.sh"
+
+post_apply_hook = """
+if [ "$WALLRACK_INTEGRATION" = "we" ]; then
+    preview=$(jq -r '.preview // ""' "$WALLRACK_WALLPAPER/project.json" 2>/dev/null)
+    if [ -n "$preview" ] && [ -f "$WALLRACK_WALLPAPER/$preview" ]; then
+        matugen image "$WALLRACK_WALLPAPER/$preview" --source-color-index 0 --lightness-dark 0.0 --lightness-light 0.0 -t scheme-content
+    fi
+else
+    matugen image "$WALLRACK_WALLPAPER" --source-color-index 0 --lightness-dark 0.0 --lightness-light 0.0 -t scheme-content
+    "${XDG_CONFIG_HOME:-$HOME/.config}/mako/update-theme.sh"
+fi
+"""
+
+# ─── thumbnails ───────────────────────────────────────────────────────────────
+
+[thumbnails]
+# Side length in pixels of the generated thumbnail images.
+size = 256
+
+# ─── wallpaper integration ────────────────────────────────────────────────────
+# Plain images from user-defined directories.
+
+[wallpaper]
+# One or more directories to scan recursively for image files.
+dirs = ["~/Pictures"]
+
+[wallpaper.backend]
+# Set the wallpaper on a specific monitor.
+apply_cmd         = 'awww img "{{image}}" --transition-type center -o "{{monitor}}"'
+# List available monitors, one name per line.
+monitors_cmd      = "hyprctl monitors | awk '/^Monitor / {print $2}'"
+# Optional. Print currently active wallpapers as <monitor>\t<path> lines.
+# Powers the thumbnail shown next to each monitor in the monitor picker.
+# Remove or comment out to disable that feature.
+current_image_cmd = "awww query | sed -nE 's/^[ :]*([^:]+):.*image: (.+)$/\\1\\t\\2/p'"
+
+# ─── wallpaper engine image integration ───────────────────────────────────────
+# Extracts still images from Wallpaper Engine workshop projects and applies
+# them like normal wallpapers. Uses the same apply/monitors backend as the
+# wallpaper integration above.
+
+[wallpaper_engine_image]
+# Workshop directory to scan. Defaults to wallpaper_engine.workshop_dir when
+# not set — typical setups share the same Steam workshop content folder.
+# workshop_dir = "~/.local/share/Steam/steamapps/workshop/content/431960"
+
+[wallpaper_engine_image.backend]
+apply_cmd         = 'awww img "{{image}}" --transition-type center -o "{{monitor}}"'
+monitors_cmd      = "hyprctl monitors | awk '/^Monitor / {print $2}'"
+current_image_cmd = "awww query | sed -nE 's/^[ :]*([^:]+):.*image: (.+)$/\\1\\t\\2/p'"
+
+# ─── wallpaper engine integration ─────────────────────────────────────────────
+# Live Wallpaper Engine projects applied via linux-wallpaperengine.
+
+[wallpaper_engine]
+workshop_dir = "~/.local/share/Steam/steamapps/workshop/content/431960"
+
+[wallpaper_engine.backend]
+# linux-wallpaperengine is launched detached via setsid. Any previously
+# running instance is killed and waited for before this command is spawned,
+# so the template only needs to launch the new one.
+apply_cmd    = 'uwsm app -- linux-wallpaperengine --screenshot-delay 1000 --screenshot ~/.cache/lock.jpg --disable-web-security --autoplay-policy=no-user-gesture-required --no-audio-processing --disable-parallax --silent --no-fullscreen-pause --scaling fill --screen-root "{{monitor}}" --bg "{{workshop_id}}"'
+monitors_cmd = "hyprctl monitors | awk '/^Monitor / {print $2}'"
+# current_image_cmd is not used for the we integration — wallrack tracks
+# per-monitor WE state internally.

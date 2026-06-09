@@ -17,8 +17,8 @@ tag overrides, and per-integration backend commands:
 
 | Key         | What it indexes                                          | Drilling | Applies via                |
 | ----------- | -------------------------------------------------------- | -------- | -------------------------- |
-| `wallpaper` | Plain images in `wallpaper.dirs`                         | yes      | image backend (e.g. swww)  |
-| `we_image`  | Images extracted from Wallpaper Engine workshop projects | yes      | image backend (e.g. swww)  |
+| `wallpaper` | Plain images in `wallpaper.dirs`                         | yes      | image backend (e.g. awww)  |
+| `we_image`  | Images extracted from Wallpaper Engine workshop projects | yes      | image backend (e.g. awww)  |
 | `we`        | Wallpaper Engine projects, live                          | no       | `linux-wallpaperengine`    |
 
 ## Demo
@@ -35,8 +35,9 @@ tag overrides, and per-integration backend commands:
   workshop subfolder, group images by subfolder.
 - **State** — persists picker mode, view mode, drill path, tag filter etc.
   so successive frontend invocations stay coherent.
-- **Apply** — sets a wallpaper on a specific monitor (currently via `awww` /
-  `swww` for images and `linux-wallpaperengine` for WE projects).
+- **Apply** — sets a wallpaper on a specific monitor via the configured
+  backend command (default: `awww` for images, `linux-wallpaperengine` for WE
+  projects). Runs `post_apply_hook` afterwards if configured.
 - **Daemon** (optional) — watches source directories and re-indexes
   incrementally when content changes.
 
@@ -50,8 +51,7 @@ config to use a different stack.
 **Hard**
 
 - A wallpaper backend for at least one integration you intend to use:
-  - `wallpaper` / `we_image` → an image-setting daemon (default: `awww` /
-    `swww`)
+  - `wallpaper` / `we_image` → an image-setting daemon (default: `awww`)
   - `we` → [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine)
 - A way to enumerate monitors (default: `hyprctl` from Hyprland; override
   with any command that prints monitor names line-by-line — `swaymsg`,
@@ -59,8 +59,6 @@ config to use a different stack.
 
 **Soft**
 
-- [matugen](https://github.com/InioX/matugen) — generate a theme from the
-  selected wallpaper. Driven by the frontend, not wallrack itself.
 - Any picker (rofi / fuzzel / walker / …) if you want a UI.
 
 ## Install
@@ -110,6 +108,9 @@ minimal sane config (the maintainer's reference setup, hyprland + awww, is
 baked in as defaults — you only set backend keys to override):
 
 ```toml
+# Root-level keys must come before any [section] header.
+# post_apply_hook = "matugen image \"$WALLRACK_WALLPAPER\""
+
 [thumbnails]
 size = 256
 
@@ -133,26 +134,29 @@ binary. Templates use `{{image}}`, `{{monitor}}`, `{{folder}}` and
 yourself).
 
 ```toml
-# Image-based integrations (wallpaper, we_image):
+# Image-based integrations (wallpaper, we_image) — these are the built-in defaults:
 [wallpaper.backend]
-apply_cmd         = 'swww img "{{image}}" --transition-type center -o "{{monitor}}"'
+apply_cmd         = 'awww img "{{image}}" --transition-type center -o "{{monitor}}"'
 monitors_cmd      = "hyprctl monitors | awk '/^Monitor / {print $2}'"
-current_image_cmd = "swww query | sed -nE 's/^([^:]+):.*image: (.+)$/\\1\\t\\2/p'"
+current_image_cmd = "awww query | sed -nE 's/^[ :]*([^:]+):.*image: (.+)$/\\1\\t\\2/p'"
 
 [wallpaper_engine_image.backend]
-apply_cmd = 'swww img "{{image}}" --transition-type center -o "{{monitor}}"'
+apply_cmd         = 'awww img "{{image}}" --transition-type center -o "{{monitor}}"'
+monitors_cmd      = "hyprctl monitors | awk '/^Monitor / {print $2}'"
+current_image_cmd = "awww query | sed -nE 's/^[ :]*([^:]+):.*image: (.+)$/\\1\\t\\2/p'"
 
-# Live WE projects — applied detached via setsid; pkill+wait happens around
-# the command, so the template just needs to launch linux-wallpaperengine.
+# Live WE projects — launched detached via setsid; any running
+# linux-wallpaperengine is killed and waited for before this fires.
 [wallpaper_engine.backend]
-apply_cmd = 'linux-wallpaperengine --silent --scaling fill --screen-root "{{monitor}}" --bg "{{workshop_id}}"'
+apply_cmd    = 'uwsm app -- linux-wallpaperengine --screenshot-delay 1000 --disable-web-security --autoplay-policy=no-user-gesture-required --no-audio-processing --disable-parallax --silent --no-fullscreen-pause --scaling fill --screen-root "{{monitor}}" --bg "{{workshop_id}}"'
+monitors_cmd = "hyprctl monitors | awk '/^Monitor / {print $2}'"
 ```
 
-Sample command sets for common stacks:
+Sample command sets for other stacks:
 
 ```toml
-# hyprland + swww
-apply_cmd    = 'swww img "{{image}}" -o "{{monitor}}"'
+# hyprland + awww (default)
+apply_cmd    = 'awww img "{{image}}" --transition-type center -o "{{monitor}}"'
 monitors_cmd = "hyprctl monitors | awk '/^Monitor / {print $2}'"
 
 # sway + swaybg (one bg process per output; users typically run a launcher
@@ -293,10 +297,10 @@ changes, so frontends never have to trigger a manual rebuild.
 [`wallrack_rofi_picker.sh`](./picker/wallrack_rofi_picker.sh) is a rofi script-mode wrapper that
 drives wallrack — favorites, tag filter, drill-down, mode switch, monitor
 picker, per-entry tag editing (Alt+5 spawns a nested rofi prompt to add or
-remove tags), optional matugen + mako theming. It's a complete working
-example, not the project's headline feature. See the comment block at the
-top of the script for keybindings and setup, and use it as a template if
-you want to build a frontend for a different launcher.
+remove tags). It's a complete working example, not the project's headline
+feature. See the comment block at the top of the script for keybindings and
+setup, and use it as a template if you want to build a frontend for a
+different launcher.
 
 [`wallrack_wofi_picker.sh`](./picker/wallrack_wofi_picker.sh) and
 [`wallrack_fuzzel_picker.sh`](./picker/wallrack_fuzzel_picker.sh) mirror
@@ -305,6 +309,11 @@ lack rofi's script-mode keybindings, so the action header rows
 (`⊕ mode: …`, `⊕ view: …`, `⊕ tag: …`, `⊕ rating: …`, `⊕ refresh`) take
 the place of Alt+1..6 and a sub-menu opens after picking an entry for the
 apply / favorite / edit-tags actions.
+
+Post-apply theming (matugen, mako scripts, etc.) is not handled by the
+picker scripts. Configure `post_apply_hook` in `config.toml` instead —
+wallrack runs that command after every successful apply regardless of which
+frontend triggered it.
 
 ## Writing your own frontend
 

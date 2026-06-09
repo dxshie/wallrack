@@ -23,6 +23,8 @@ nix = { version = "0.31", features = ["signal", "process"] }
 rayon = "1.10"
 sha2 = "0.11"
 hex = "0.4"
+log = "0.4"
+env_logger = { version = "0.11", default-features = false, features = ["auto-color"] }
 
 [profile.release]
 lto = "thin"

@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # Rofi script-mode wrapper around `wallrack`. All indexing, filtering,
 # favorites, tag overrides, and state management live in the Rust binary;
-# this script is just rofi protocol plumbing + theming.
+# this script is just rofi protocol plumbing.
 #
 # Hard requirements:
 # - rofi
 # - wallrack
 # Soft requirements (per integration backend, configured in config.toml):
 # - hyprland (monitors_cmd default)
-# - awww / swww (apply_cmd default for image-based integrations)
+# - awww (apply_cmd default for image-based integrations)
 # - linux-wallpaperengine (apply_cmd for the `we` integration)
-# - mako, matugen, pywalfox (optional theming on apply)
+#
+# Post-apply theming (matugen, mako, etc.) belongs in `post_apply_hook` in
+# config.toml — wallrack runs that hook after every successful apply.
 #
 # Picker modes (cycled with Alt+1):
 #   wallpaper   – plain images from config wallpaper dirs
@@ -134,23 +136,14 @@ render_add_tag_prompt() {
   done < <(wallrack tag available --integration="$picker_mode" --format=rofi 2>/dev/null)
 }
 
-# ─── apply wrappers (with theming) ──────────────────────────────────────────
+# ─── apply wrappers ──────────────────────────────────────────────────────────
 
 apply_image() {
-  # Used for both wallpaper and we_image — the target is an image path and
-  # the picker_mode determines which integration owns it.
+  # Used for both wallpaper and we_image integrations.
   local image="$1" monitor="$2" integration="$3"
   if [[ -z "$monitor" ]]; then
     notify-send -u critical "${NOTIFY_OPTIONS[@]}" "No monitor selected."
     exit 1
-  fi
-  if command -v matugen &>/dev/null; then
-    notify-send "${NOTIFY_OPTIONS[@]}" "Matugen detected, setting theme."
-    matugen image "$image" --source-color-index 0 --lightness-dark 0.0 --lightness-light 0.0 -t scheme-content
-  fi
-  if command -v makoctl &>/dev/null; then
-    notify-send "${NOTIFY_OPTIONS[@]}" "Mako detected, updating."
-    "$XDG_CONFIG_HOME/mako/update-theme.sh"
   fi
   wallrack apply --integration="$integration" --monitor="$monitor" "$image"
   exit 0
@@ -163,13 +156,6 @@ apply_we() {
     exit 1
   fi
   wallrack apply --integration=we --monitor="$monitor" "$folder"
-  if command -v matugen &>/dev/null; then
-    preview=$(jq -r '.preview // ""' "$folder/project.json" 2>/dev/null)
-    if [[ -n "$preview" && -f "$folder/$preview" ]]; then
-      notify-send "${NOTIFY_OPTIONS[@]}" "Matugen detected, setting theme."
-      matugen image "$folder/$preview" --source-color-index 0 --lightness-dark 0.0 --lightness-light 0.0 -t scheme-content
-    fi
-  fi
   exit 0
 }
 

@@ -20,7 +20,9 @@
 #
 # Hard requirements: wofi (>=1.4 for `--allow-images`), wallrack, jq.
 # Soft requirements (per-integration backend, same as rofi reference):
-# hyprland, swww, linux-wallpaperengine, notify-send, mako, matugen.
+# hyprland, awww, linux-wallpaperengine, notify-send.
+#
+# Post-apply theming belongs in `post_apply_hook` in config.toml.
 
 set -o pipefail
 
@@ -164,30 +166,16 @@ pick_monitor() {
   printf '%s' "$(parse_display "$sel")"
 }
 
-# ─── apply wrappers (with theming, mirrors rofi reference) ──────────────────
+# ─── apply wrappers ──────────────────────────────────────────────────────────
 
 apply_image() {
   local image="$1" monitor="$2" integration="$3"
-  if command -v matugen &>/dev/null; then
-    matugen image "$image" --source-color-index 0 --lightness-dark 0.0 --lightness-light 0.0 -t scheme-content 2>/dev/null
-  fi
-  local mako_script="${XDG_CONFIG_HOME:-$HOME/.config}/mako/update-theme.sh"
-  if command -v makoctl &>/dev/null && [[ -x "$mako_script" ]]; then
-    "$mako_script"
-  fi
   wallrack apply --integration="$integration" --monitor="$monitor" "$image"
 }
 
 apply_we() {
   local folder="$1" monitor="$2"
   wallrack apply --integration=we --monitor="$monitor" "$folder"
-  if command -v matugen &>/dev/null; then
-    local preview
-    preview=$(jq -r '.preview // ""' "$folder/project.json" 2>/dev/null)
-    if [[ -n "$preview" && -f "$folder/$preview" ]]; then
-      matugen image "$folder/$preview" --source-color-index 0 --lightness-dark 0.0 --lightness-light 0.0 -t scheme-content 2>/dev/null
-    fi
-  fi
 }
 
 # ─── main loop ──────────────────────────────────────────────────────────────

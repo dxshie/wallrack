@@ -494,14 +494,10 @@ fn cmd_index(paths: &Paths, config: &Config, integration: &str) -> Result<ExitCo
                 let n = idx.entries.len();
                 total += n;
                 let elapsed = started.elapsed().as_secs_f32();
-                eprintln!(
-                    "wallrack: {}{}{} indexed {}{}{} entries in {:.2}s",
-                    c.yellow,
-                    integ.name(),
-                    c.reset,
-                    c.green,
-                    n,
-                    c.reset,
+                log::info!(
+                    "{}{}{} indexed {}{}{} entries in {:.2}s",
+                    c.yellow, integ.name(), c.reset,
+                    c.green, n, c.reset,
                     elapsed,
                 );
                 // Pull native tags into the catalog so the picker can suggest
@@ -523,11 +519,9 @@ fn cmd_index(paths: &Paths, config: &Config, integration: &str) -> Result<ExitCo
                 }
             }
             Err(err) => {
-                eprintln!(
-                    "wallrack: {}{}{} index failed: {err:#}",
-                    c.red,
-                    integ.name(),
-                    c.reset
+                log::error!(
+                    "{}{}{} index failed: {err:#}",
+                    c.red, integ.name(), c.reset,
                 );
                 if in_rofi {
                     notify_send(&format!("{}: failed — {err}", integ.name()), 5000);
@@ -1635,6 +1629,22 @@ fn cmd_apply(
         .cloned()
         .ok_or_else(|| anyhow!("entry not in index: {target}"))?;
     integ.apply(&entry, monitor, paths, config)?;
+    if !config.post_apply_hook.is_empty() {
+        log::info!("running post_apply_hook");
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(&config.post_apply_hook)
+            .env("WALLRACK_WALLPAPER", target)
+            .env("WALLRACK_MONITOR", monitor)
+            .env("WALLRACK_INTEGRATION", &integration)
+            .status()
+            .with_context(|| format!("spawn post_apply_hook `{}`", config.post_apply_hook))?;
+        if !status.success() {
+            log::warn!("post_apply_hook exited with {status}");
+        }
+    } else {
+        log::debug!("post_apply_hook not set, skipping");
+    }
     Ok(ExitCode::SUCCESS)
 }
 
@@ -1756,5 +1766,17 @@ fn cmd_info(paths: &Paths, config: &Config) -> Result<ExitCode> {
         c.reset,
         config.we_workshop_dir().display()
     );
+    if config.post_apply_hook.is_empty() {
+        println!("{}post_apply_hook:{}       {}(not set){}", c.bold, c.reset, c.dim, c.reset);
+    } else {
+        let preview: String = config.post_apply_hook
+            .lines()
+            .next()
+            .unwrap_or("")
+            .chars()
+            .take(60)
+            .collect();
+        println!("{}post_apply_hook:{}       {}{}…{}", c.bold, c.reset, c.cyan, preview, c.reset);
+    }
     Ok(ExitCode::SUCCESS)
 }
