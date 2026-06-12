@@ -33,6 +33,7 @@
           # want it can wire `wallrack-rofi-picker` straight into their hotkey.
           postInstall = ''
             install -Dm755 picker/wallrack_rofi_picker.sh $out/bin/wallrack-rofi-picker
+            install -Dm644 man/wallrack.1 $out/share/man/man1/wallrack.1
           '';
 
           meta = with pkgs.lib; {

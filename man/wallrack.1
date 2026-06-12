@@ -1,0 +1,211 @@
+.TH WALLRACK 1 "2026-06-12" "wallrack 0.2.0" "User Commands"
+.SH NAME
+wallrack \- modular, picker-agnostic wallpaper manager
+.SH SYNOPSIS
+.B wallrack
+.I COMMAND
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B wallrack
+indexes plain image directories and Steam Workshop content (Wallpaper Engine
+image scrapes and live WE projects), generates thumbnails, tracks favorites,
+tags, and ratings, persists picker state, and applies wallpapers to specific
+monitors. Output is structured (JSON or picker script-mode) so any frontend
+\(em rofi, fuzzel, walker, wofi, a TUI, a desktop widget \(em can drive it.
+.PP
+Each command operates on one of three integrations, selected with
+.BR \-\-integration :
+.TP
+.B wallpaper
+Plain images from \fBwallpaper.dirs\fR in \fIconfig.toml\fR.
+.TP
+.B we_image
+Images extracted from Wallpaper Engine workshop projects.
+.TP
+.B we
+Live Wallpaper Engine projects, applied via
+.BR linux-wallpaperengine .
+.SH COMMANDS
+.TP
+.B index [\-\-integration=\fIWHICH\fB]
+Build or refresh the on-disk index and thumbnails.
+.I WHICH
+is
+.BR all " (default), " wallpaper ", " we_image ", or " we .
+.TP
+.B list [\-\-integration=\fIWHICH\fB] [\-\-format=\fIFMT\fB] [\-\-favorites] [\-\-tag=\fITAG\fB] [\-\-rating=\fIR\fB] [\-\-folder=\fIPATH\fB] [\-\-use-state] [\-\-group]
+Emit wallpapers in the requested format. With
+.B \-\-use\-state
+the filters are pulled from persisted picker state instead of flags.
+.B \-\-group
+collapses subfolders into folder rows (wallpaper-style integrations only).
+.TP
+.B view [\-\-format=\fIFMT\fB]
+Render the current picker view based on persisted state. This is the entry
+point reference frontends (e.g. the bundled rofi script) call on each
+invocation.
+.TP
+.B tags [\-\-integration=\fIWHICH\fB] [\-\-format=\fIFMT\fB]
+List the unique tags currently in the active integration's index.
+.TP
+.B tag \fISUBCOMMAND\fR
+Edit per-entry tag overrides. Subcommands:
+.BR add ", " remove ", " set ", " clear ", " show ", " available ", "
+.BR create ", " delete .
+.BR delete " accepts " \-\-cascade
+to also strip the tag from every entry that carries it.
+.TP
+.B rating \fISUBCOMMAND\fR
+Edit per-entry rating overrides. Subcommands:
+.BR set ", " clear ", " show .
+.TP
+.B favorites \fISUBCOMMAND\fR
+Manage favorites. Subcommands:
+.BR list ", " add ", " remove ", " toggle ", " is .
+.B is
+exits 0 if the id is favorited, 1 otherwise.
+.B toggle
+prints
+.RB \(lq added \(rq " or " \(lq removed \(rq.
+.TP
+.B state \fISUBCOMMAND\fR
+Picker state get/set/reset. Subcommands:
+.BR get ", " set ", " unset ", " dump ", " reset-transient .
+.BR reset-transient
+clears
+.IR drill_path ", " tag_mode ", " tag_edit_target ", " tag_add_mode .
+.TP
+.B monitors [\-\-integration=\fIWHICH\fB] [\-\-target=\fIID\fB] [\-\-format=\fIFMT\fB]
+List monitors with their current wallpapers in the requested format.
+.I target
+is passed through in the
+.B info
+field so picker scripts can route the selection back to
+.BR apply .
+.TP
+.B apply [\-\-integration=\fIWHICH\fB] \-\-monitor=\fIMON\fR \fITARGET\fR
+Apply
+.I TARGET
+(image path or WE folder path) to monitor
+.IR MON .
+Runs
+.B hooks.pre_apply_hook
+before and
+.B hooks.post_apply_hook
+after the apply, if configured. Both receive
+.BR WALLRACK_WALLPAPER ", " WALLRACK_MONITOR ", " WALLRACK_INTEGRATION
+in the environment.
+.TP
+.B daemon \fISUBCOMMAND\fR
+Daemon control. Subcommands:
+.BR start " [" \-\-foreground "], " stop ", " status .
+The daemon watches the configured directories and re-indexes incrementally
+when content changes.
+.TP
+.B info
+Show resolved paths, per-integration index sizes, configured wallpaper
+directories, and the active hook commands.
+.SH OUTPUT FORMATS
+.B \-\-format
+accepts:
+.BR json " (default for machine consumption), "
+.BR rofi " (rofi script-mode \(em see " rofi-script (5) ),"
+.BR walker ", " wofi ", " fuzzel
+(dmenu-style for the respective launchers).
+.SH CONFIGURATION
+.B wallrack
+reads
+.I $XDG_CONFIG_HOME/wallrack/config.toml
+(falling back to
+.IR ~/.config/wallrack/config.toml ).
+See the bundled
+.I config.example.toml
+for the full schema, including
+.BR wallpaper.dirs ", " workshop_dir ", per-integration backend commands "
+.RB ( apply_cmd ", " monitors_cmd ", " current_image_cmd "), and the "
+.BR [hooks] " section."
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/wallrack/config.toml
+User configuration.
+.TP
+.I $XDG_CACHE_HOME/wallrack/
+Per-integration index JSON, thumbnails, picker state, favorites, tag
+overrides, tag catalog, and rating overrides.
+.SH ENVIRONMENT
+.TP
+.B ROFI_RETV
+When set,
+.B wallrack
+assumes it is running inside a rofi script-mode invocation and emits
+.BR notify-send (1)
+progress notifications during indexing.
+.TP
+.B RUST_LOG
+Standard
+.BR env_logger (3)
+filter \(em set to
+.BR debug " or " info
+for verbose output.
+.SH EXIT STATUS
+.B 0
+on success;
+.B 1
+on
+.B favorites is
+when the id is not favorited, or on a missing state key for
+.BR state get .
+Non-zero on any other error, with a diagnostic on stderr.
+.SH EXAMPLES
+.PP
+Build every integration's index:
+.PP
+.RS
+.nf
+wallrack index
+.fi
+.RE
+.PP
+List the
+.B we
+integration as JSON for a TUI frontend:
+.PP
+.RS
+.nf
+wallrack list \-\-integration=we \-\-format=json
+.fi
+.RE
+.PP
+Toggle a favorite from a hotkey:
+.PP
+.RS
+.nf
+wallrack favorites toggle \-\-integration=wallpaper /path/to/image.jpg
+.fi
+.RE
+.PP
+Apply a wallpaper to a specific monitor:
+.PP
+.RS
+.nf
+wallrack apply \-\-integration=wallpaper \-\-monitor=DP\-1 /path/to/image.jpg
+.fi
+.RE
+.PP
+Start the watcher daemon in the foreground:
+.PP
+.RS
+.nf
+wallrack daemon start \-\-foreground
+.fi
+.RE
+.SH SEE ALSO
+.BR rofi-script (5),
+.BR notify-send (1),
+.BR hyprctl (1)
+.PP
+Project home:
+.UR https://github.com/dxshie/wallrack
+.UE
+.SH AUTHOR
+Written by the wallrack contributors.
