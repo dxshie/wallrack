@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -16,6 +17,8 @@ pub struct Config {
     pub wallpaper_engine_image: WallpaperEngineImageConfig,
     #[serde(default)]
     pub wallpaper_engine: WallpaperEngineConfig,
+    #[serde(default)]
+    pub booru: BooruConfig,
     #[serde(default)]
     pub hooks: Hooks,
 }
@@ -112,9 +115,176 @@ impl Default for Config {
             wallpaper: WallpaperConfig::default(),
             wallpaper_engine_image: WallpaperEngineImageConfig::default(),
             wallpaper_engine: WallpaperEngineConfig::default(),
+            booru: BooruConfig::default(),
             hooks: Hooks::default(),
         }
     }
+}
+
+// ─── booru integration ──────────────────────────────────────────────────────
+// Search-driven integration that talks to danbooru-style image boards
+// (konachan, yandere, danbooru, gelbooru, …). Search results are cached as
+// the integration's index; "applying" an entry downloads it into
+// `download_dir`.
+
+/// API shape of the target booru. Field naming differs enough across the three
+/// big families that we dispatch on this rather than papering over with serde
+/// aliases. Defaults to moebooru — the family konachan/yande.re belong to.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum BooruApiKind {
+    /// konachan, yande.re — `/post.json?tags=…&page=1`
+    Moebooru,
+    /// danbooru.donmai.us — `/posts.json?tags=…&page=1`
+    Danbooru,
+    /// gelbooru, safebooru — `/index.php?page=dapi&s=post&q=index&json=1&tags=…&pid=0`
+    Gelbooru,
+}
+
+impl Default for BooruApiKind {
+    fn default() -> Self { BooruApiKind::Moebooru }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BooruSite {
+    pub base_url: String,
+    #[serde(default)]
+    pub api_kind: BooruApiKind,
+    /// Login / username. Required for moebooru (with `password` or
+    /// `password_hash`) and danbooru (with `api_key`). Gelbooru ignores this
+    /// — it auths via `user_id`/`api_key` pair.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login: Option<String>,
+    /// API key. Required for danbooru/gelbooru auth. Ignored by moebooru.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    /// Numeric user_id, required for gelbooru auth.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    /// Plaintext password (moebooru only). Hashed at request time using
+    /// `password_salt` — never sent in the clear.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    /// Pre-computed `password_hash` (moebooru only). Use this when you'd
+    /// rather not store the plaintext password in config.toml; copy it from
+    /// your browser's saved cookies or compute it once externally.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password_hash: Option<String>,
+    /// Moebooru password salt template — the literal `{}` is replaced with
+    /// the password and the result is SHA1'd. Built-in defaults cover
+    /// konachan and yande.re; custom moebooru instances need their own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password_salt: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BooruConfig {
+    /// Where downloaded full-size images are placed. Set this to one of your
+    /// `wallpaper.dirs` if you want them to appear in the wallpaper picker
+    /// after a re-index.
+    #[serde(default = "default_booru_download_dir")]
+    pub download_dir: String,
+    /// Site key to use when `--site` is not passed.
+    #[serde(default = "default_booru_default_site")]
+    pub default_site: String,
+    /// Results per page on `wallrack booru search`. Most boorus cap this at
+    /// ~100; konachan/yandere default to 21 in the web UI.
+    #[serde(default = "default_booru_per_page")]
+    pub per_page: u32,
+    /// Configured sites. Empty maps fall back to the built-in defaults
+    /// (`konachan`, `yandere`, `danbooru`, `gelbooru`, `safebooru`).
+    #[serde(default)]
+    pub sites: BTreeMap<String, BooruSite>,
+}
+
+impl Default for BooruConfig {
+    fn default() -> Self {
+        Self {
+            download_dir: default_booru_download_dir(),
+            default_site: default_booru_default_site(),
+            per_page: default_booru_per_page(),
+            sites: BTreeMap::new(),
+        }
+    }
+}
+
+impl BooruConfig {
+    pub fn download_dir(&self) -> PathBuf {
+        expand_home(&self.download_dir)
+    }
+
+    /// User-configured sites merged with built-in defaults. User-set fields
+    /// win; unset fields fall back to the builtin. This matters for
+    /// `password_salt` in particular — users overriding `[booru.sites.konachan]`
+    /// shouldn't have to re-specify the moebooru salt to keep auth working.
+    pub fn resolved_sites(&self) -> BTreeMap<String, BooruSite> {
+        let mut sites = builtin_booru_sites();
+        for (k, user) in &self.sites {
+            let merged = match sites.remove(k) {
+                Some(builtin) => BooruSite {
+                    base_url: if user.base_url.is_empty() { builtin.base_url } else { user.base_url.clone() },
+                    api_kind: user.api_kind,
+                    login: user.login.clone().or(builtin.login),
+                    api_key: user.api_key.clone().or(builtin.api_key),
+                    user_id: user.user_id.clone().or(builtin.user_id),
+                    password: user.password.clone().or(builtin.password),
+                    password_hash: user.password_hash.clone().or(builtin.password_hash),
+                    password_salt: user.password_salt.clone().or(builtin.password_salt),
+                },
+                None => user.clone(),
+            };
+            sites.insert(k.clone(), merged);
+        }
+        sites
+    }
+
+    pub fn resolve_site(&self, key: &str) -> Option<BooruSite> {
+        self.resolved_sites().get(key).cloned()
+    }
+}
+
+fn default_booru_download_dir() -> String { "~/Pictures/booru".to_string() }
+fn default_booru_default_site() -> String { "konachan".to_string() }
+fn default_booru_per_page() -> u32 { 20 }
+
+fn builtin_booru_sites() -> BTreeMap<String, BooruSite> {
+    let mut m = BTreeMap::new();
+    // Moebooru salt templates are site-specific and load-bearing for login —
+    // the API rejects a hash built with the wrong salt. Values are the
+    // published constants from each site's source.
+    m.insert("konachan".into(), BooruSite {
+        base_url: "https://konachan.com".into(),
+        api_kind: BooruApiKind::Moebooru,
+        login: None, api_key: None, user_id: None,
+        password: None, password_hash: None,
+        password_salt: Some("So-I-Heard_You_Like_Mupkids.{}--".into()),
+    });
+    m.insert("yandere".into(), BooruSite {
+        base_url: "https://yande.re".into(),
+        api_kind: BooruApiKind::Moebooru,
+        login: None, api_key: None, user_id: None,
+        password: None, password_hash: None,
+        password_salt: Some("choujin-steiner--{}--".into()),
+    });
+    m.insert("danbooru".into(), BooruSite {
+        base_url: "https://danbooru.donmai.us".into(),
+        api_kind: BooruApiKind::Danbooru,
+        login: None, api_key: None, user_id: None,
+        password: None, password_hash: None, password_salt: None,
+    });
+    m.insert("gelbooru".into(), BooruSite {
+        base_url: "https://gelbooru.com".into(),
+        api_kind: BooruApiKind::Gelbooru,
+        login: None, api_key: None, user_id: None,
+        password: None, password_hash: None, password_salt: None,
+    });
+    m.insert("safebooru".into(), BooruSite {
+        base_url: "https://safebooru.org".into(),
+        api_kind: BooruApiKind::Gelbooru,
+        login: None, api_key: None, user_id: None,
+        password: None, password_hash: None, password_salt: None,
+    });
+    m
 }
 
 impl Config {

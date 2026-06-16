@@ -23,6 +23,9 @@ enum IntegrationArg {
     /// Live Wallpaper Engine projects (linux-wallpaperengine).
     #[value(name = "we")]
     We,
+    /// Danbooru-style image board search (konachan, yandere, danbooru, …).
+    #[value(name = "booru")]
+    Booru,
 }
 
 impl IntegrationArg {
@@ -31,6 +34,7 @@ impl IntegrationArg {
             Self::Wallpaper => "wallpaper",
             Self::WeImage => "we_image",
             Self::We => "we",
+            Self::Booru => "booru",
         }
     }
 }
@@ -47,6 +51,8 @@ enum IndexTarget {
     WeImage,
     #[value(name = "we")]
     We,
+    #[value(name = "booru")]
+    Booru,
 }
 
 impl IndexTarget {
@@ -56,6 +62,7 @@ impl IndexTarget {
             Self::Wallpaper => "wallpaper",
             Self::WeImage => "we_image",
             Self::We => "we",
+            Self::Booru => "booru",
         }
     }
 }
@@ -239,6 +246,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: DaemonCmd,
     },
+    /// Search danbooru-style image boards and download picks into
+    /// `[booru].download_dir`.
+    Booru {
+        #[command(subcommand)]
+        cmd: BooruCmd,
+    },
     /// Show resolved paths and config.
     Info,
 }
@@ -402,6 +415,56 @@ enum DaemonCmd {
     Status,
 }
 
+#[derive(Subcommand)]
+enum BooruCmd {
+    /// Run a tag search against a booru and cache the page as the booru
+    /// index — `wallrack list --integration=booru` then renders the rows.
+    Search {
+        /// Site key as configured under `[booru.sites.<key>]`. Falls back
+        /// to `[booru].default_site`.
+        #[arg(long)]
+        site: Option<String>,
+        /// Tag query — passed through to the booru's search API. Use the
+        /// site's own syntax (spaces = AND, `-foo` = NOT, `rating:s`, …).
+        #[arg(long, default_value = "")]
+        tags: String,
+        /// 1-based page number. Gelbooru's 0-based `pid` is translated
+        /// internally so this stays uniform across sites.
+        #[arg(long, default_value_t = 1)]
+        page: u32,
+        /// Results per page. Most sites cap this at ~100.
+        #[arg(long)]
+        limit: Option<u32>,
+        #[arg(long, default_value = "json")]
+        format: Format,
+        /// Skip pre-downloading preview thumbs. Default is to fetch them so
+        /// picker formats have an icon to render — set this for plain JSON
+        /// output where the round-trips are pure waste.
+        #[arg(long)]
+        no_thumbs: bool,
+    },
+    /// Download a post from the cached search results into
+    /// `[booru].download_dir`. The post id is the bare numeric id from the
+    /// booru (e.g. `123456`); pass `--site` to disambiguate when the cache
+    /// mixes sites.
+    Download {
+        /// Site key — required only if the cached index mixes sites.
+        #[arg(long)]
+        site: Option<String>,
+        /// Post id, or the full `site:id` slug emitted by `search`.
+        id: String,
+    },
+    /// List configured + built-in sites.
+    Sites {
+        #[arg(long, default_value = "json")]
+        format: Format,
+    },
+    /// Print the currently active booru site key — the value the picker
+    /// would use for the next search. Resolution order: state
+    /// (`booru_site`) → config (`booru.default_site`) → first configured.
+    CurrentSite,
+}
+
 pub fn run() -> Result<ExitCode> {
     let matches = Cli::command().styles(make_clap_styles()).get_matches();
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
@@ -462,6 +525,7 @@ pub fn run() -> Result<ExitCode> {
             &target,
         ),
         Cmd::Daemon { cmd } => cmd_daemon(&paths, &config, cmd),
+        Cmd::Booru { cmd } => cmd_booru(&paths, &config, cmd),
         Cmd::Info => cmd_info(&paths, &config),
     }
 }
@@ -903,6 +967,7 @@ fn view_hints_for(
         prompt,
         message: "Alt+1 mode | Alt+2 tag | Alt+3 fav | Alt+4 view | Alt+5 edit tags | Alt+6 rating | Alt+0 refresh".to_string(),
         use_hot_keys: true,
+        allow_custom: false,
     }
 }
 
@@ -943,6 +1008,13 @@ fn cmd_view(paths: &Paths, format: Format) -> Result<ExitCode> {
     // Tag selection view short-circuits everything else.
     if tag_mode == "selecting" {
         return cmd_tags(paths, Some(&integration), format);
+    }
+
+    // The booru integration is search-driven — render its own header rows
+    // (search prompt, site, pagination) before any entries. Bypasses the
+    // favorites/tag/drill machinery that doesn't apply here.
+    if integration == "booru" {
+        return cmd_booru_view(paths, &state, format);
     }
 
     let integ = integrations::by_name(&integration)?;
@@ -1025,6 +1097,112 @@ fn cmd_view(paths: &Paths, format: Format) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+// ───── booru view (state-driven) ─────────────────────────────────────────────
+
+/// Render the booru picker view. Two sub-views:
+///   * `BOORU_SEARCH_MODE = on` → search prompt (single Cancel row, picker
+///     uses rofi's allow-custom to capture the typed query).
+///   * normal → control rows (Search / Site / Prev / Next) followed by the
+///     cached posts from the last `wallrack booru search`.
+fn cmd_booru_view(paths: &Paths, state: &State, format: Format) -> Result<ExitCode> {
+    let cfg = crate::config::Config::load(paths)?;
+    let site = state
+        .get_or(state::keys::BOORU_SITE, &cfg.booru.default_site)
+        .to_string();
+    let query = state.get_or(state::keys::BOORU_QUERY, "").to_string();
+    let page: u32 = state
+        .get_or(state::keys::BOORU_PAGE, "1")
+        .parse()
+        .unwrap_or(1);
+    let search_mode = state.get_or(state::keys::BOORU_SEARCH_MODE, "").to_string();
+
+    let stdout = io::stdout().lock();
+    let mut out = BufWriter::new(stdout);
+
+    if search_mode == "on" {
+        let rows = [Row::Control {
+            label: "← Cancel".to_string(),
+            info: "booru:cancel-search".to_string(),
+            icon: None,
+        }];
+        let hints = ViewHints {
+            prompt: format!("Search {site}"),
+            message: "Type tags (space-separated), Enter to search. Esc cancels.".to_string(),
+            use_hot_keys: true,
+            // Let the user's typed query come through as `$selection` —
+            // there is no row to select for free-form text otherwise.
+            allow_custom: true,
+        };
+        write_rows(&mut out, &rows, &hints, format)?;
+        out.flush()?;
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    // Cached results from the last `wallrack booru search`. read_index for
+    // booru returns the cached page (or an empty index when nothing's been
+    // searched yet).
+    let integ = integrations::by_name("booru")?;
+    let index = integ.read_index(paths)?;
+
+    // Search (Alt+2), site switch (Alt+6), and pagination (Alt+7/Alt+8) are
+    // all hotkeys — no control rows. Keeping them out keeps the post grid
+    // unbroken and stops accidental Enter on a row two slots above the post
+    // the user actually meant to pick.
+    let mut rows: Vec<Row<'_>> = Vec::with_capacity(index.entries.len().max(1));
+    for e in &index.entries {
+        rows.push(Row::Entry {
+            entry: e,
+            favorite: false,
+            label: None,
+            // `booru-post:` keeps it distinct from `image:<path>` so the rofi
+            // wrapper can route us to download-then-monitor rather than
+            // straight to a wallpaper apply.
+            info: Some(format!("booru-post:{}", e.id)),
+        });
+    }
+    // Rofi script-mode closes when it receives zero rows. A no-result search
+    // (or first-run empty state) still has to feed it at least one placeholder
+    // so the user keeps the view and can Alt+2 again. `noop:*` is the picker's
+    // existing inert-row prefix — Enter on it just re-renders.
+    if rows.is_empty() {
+        let label = if query.is_empty() {
+            format!("No search yet on {site} — Alt+2 to search")
+        } else {
+            format!("No results for `{query}` on {site} — Alt+2 / Alt+6 to retry")
+        };
+        rows.push(Row::Control {
+            label,
+            info: "noop:booru-empty".to_string(),
+            icon: None,
+        });
+    }
+
+    let prompt = if query.is_empty() {
+        format!("booru/{site}")
+    } else {
+        format!("booru/{site} · {query} · p{page}")
+    };
+    let message = if index.entries.is_empty() && query.is_empty() {
+        "Alt+2 search · Alt+6 cycle site · Alt+7/Alt+8 page".to_string()
+    } else if index.entries.is_empty() {
+        format!("No results for `{query}` on {site}. Alt+2 to retype.")
+    } else {
+        format!(
+            "{} results — Enter download + apply · Alt+2 search · Alt+6 site · Alt+7/Alt+8 page",
+            index.entries.len()
+        )
+    };
+    let hints = ViewHints {
+        prompt,
+        message,
+        use_hot_keys: true,
+        allow_custom: false,
+    };
+    write_rows(&mut out, &rows, &hints, format)?;
+    out.flush()?;
+    Ok(ExitCode::SUCCESS)
+}
+
 // ───── tag editor sub-views (state-driven) ───────────────────────────────────
 
 /// Render the per-entry tag editor. Rows: a Back row, an Add row, and one
@@ -1070,6 +1248,7 @@ fn cmd_tag_editor_view(
         prompt: format!("Tags: {label}"),
         message: "Enter to remove tag | \"+ Add\" prompts for a new tag | ← Back".to_string(),
         use_hot_keys: true,
+        allow_custom: false,
     };
     let stdout = io::stdout().lock();
     let mut out = BufWriter::new(stdout);
@@ -1113,6 +1292,8 @@ fn cmd_add_tag_view(
         prompt: format!("Add tag to {label}"),
         message: "Pick a known tag or type a new one — Enter to add, Esc to cancel".to_string(),
         use_hot_keys: true,
+        // Free-form tag entry — `$selection` carries the typed string.
+        allow_custom: true,
     };
     let stdout = io::stdout().lock();
     let mut out = BufWriter::new(stdout);
@@ -1188,6 +1369,7 @@ fn cmd_tags(paths: &Paths, integration: Option<&str>, format: Format) -> Result<
                 prompt: "Filter by Tag".to_string(),
                 message: "Select a tag — Alt+2 to cancel".to_string(),
                 use_hot_keys: true,
+                allow_custom: false,
             };
             write_rows(&mut out, &rows, &hints, format)?;
         }
@@ -1476,6 +1658,7 @@ fn cmd_state(paths: &Paths, cmd: StateCmd) -> Result<ExitCode> {
             state.remove(state::keys::TAG_MODE);
             state.remove(state::keys::TAG_EDIT_TARGET);
             state.remove(state::keys::TAG_ADD_MODE);
+            state.remove(state::keys::BOORU_SEARCH_MODE);
             state.save(&state_path)?;
             Ok(ExitCode::SUCCESS)
         }
@@ -1537,6 +1720,7 @@ fn cmd_monitors(
                 prompt: "Monitor".to_string(),
                 message: String::new(),
                 use_hot_keys: false,
+                allow_custom: false,
             };
             write_rows(&mut out, &rows, &hints, format)?;
         }
@@ -1557,6 +1741,7 @@ fn cmd_monitors(
                 prompt: "Monitor".to_string(),
                 message: String::new(),
                 use_hot_keys: false,
+                allow_custom: false,
             };
             write_rows(&mut out, &rows, &hints, format)?;
         }
@@ -1622,12 +1807,36 @@ fn cmd_apply(
     };
     let integ = integrations::by_name(&integration)?;
     let index = integ.read_index(paths)?;
-    let entry = index
-        .entries
-        .iter()
-        .find(|e| e.id == target)
-        .cloned()
-        .ok_or_else(|| anyhow!("entry not in index: {target}"))?;
+    let entry = match index.entries.iter().find(|e| e.id == target).cloned() {
+        Some(e) => e,
+        None => {
+            // For image integrations, allow applying an extant file even when
+            // it isn't in the index yet. This is how the booru flow gets a
+            // freshly-downloaded image onto a monitor without forcing a
+            // re-index between download and apply.
+            let is_image = matches!(integration.as_str(), "wallpaper" | "we_image");
+            let p = std::path::PathBuf::from(target);
+            if is_image && p.is_file() {
+                Entry {
+                    integration: integration.clone(),
+                    id: target.to_string(),
+                    title: p
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("image")
+                        .to_string(),
+                    source: p,
+                    thumb: std::path::PathBuf::new(),
+                    rating: String::new(),
+                    tags: Vec::new(),
+                    workshop_id: None,
+                    subfolder: String::new(),
+                }
+            } else {
+                return Err(anyhow!("entry not in index: {target}"));
+            }
+        }
+    };
     if !config.hooks.pre_apply_hook.is_empty() {
         log::info!("running pre_apply_hook");
         let status = Command::new("sh")
@@ -1679,6 +1888,144 @@ fn cmd_daemon(paths: &Paths, config: &Config, cmd: DaemonCmd) -> Result<ExitCode
         }
         DaemonCmd::Status => {
             d.status()?;
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+// ───── booru ─────────────────────────────────────────────────────────────────
+
+fn cmd_booru(paths: &Paths, config: &Config, cmd: BooruCmd) -> Result<ExitCode> {
+    use crate::integrations::booru as booru_mod;
+
+    match cmd {
+        BooruCmd::Search {
+            site,
+            tags,
+            page,
+            limit,
+            format,
+            no_thumbs,
+        } => {
+            let site_key = site
+                .or_else(|| Some(config.booru.default_site.clone()))
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| anyhow!(
+                    "no site specified — pass --site or set `booru.default_site` in config"
+                ))?;
+            let site_def = config.booru.resolve_site(&site_key).ok_or_else(|| {
+                anyhow!(
+                    "unknown booru site `{site_key}` — known: {}",
+                    config
+                        .booru
+                        .resolved_sites()
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })?;
+            let limit = limit.unwrap_or(config.booru.per_page).clamp(1, 200);
+            let posts = booru_mod::search(&site_key, &site_def, &tags, page, limit)
+                .with_context(|| format!("search {site_key}"))?;
+            log::info!(
+                "booru: {} posts from {site_key} (page {page}, query `{tags}`)",
+                posts.len()
+            );
+            // Default to caching preview thumbs — the picker drives a JSON
+            // round-trip (it discards stdout and re-renders via `wallrack
+            // view`) yet still needs `icon` paths populated. Opt out with
+            // --no-thumbs when scripting.
+            let want_thumbs = !no_thumbs;
+            let download_dir = config.booru.download_dir();
+            let idx = booru_mod::save_search_as_index(
+                paths,
+                &site_key,
+                &tags,
+                page,
+                &posts,
+                want_thumbs,
+                &download_dir,
+            )?;
+
+            let favorites = Favorites::load(&paths.favorites_file())?;
+            let stdout = io::stdout().lock();
+            let mut out = BufWriter::new(stdout);
+            let entries: Vec<&Entry> = idx.entries.iter().collect();
+            let rows: Vec<Row<'_>> = entries
+                .iter()
+                .map(|e| Row::Entry {
+                    entry: e,
+                    favorite: favorites.is_favorite(&e.integration, &e.id),
+                    label: None,
+                    info: Some(format!("booru:{}", e.id)),
+                })
+                .collect();
+            let hints = ViewHints {
+                prompt: format!("booru/{site_key} p{page}"),
+                message: format!(
+                    "{} results — `wallrack booru download <id>` to save",
+                    entries.len()
+                ),
+                use_hot_keys: false,
+                allow_custom: false,
+            };
+            write_rows(&mut out, &rows, &hints, format)?;
+            out.flush()?;
+            Ok(ExitCode::SUCCESS)
+        }
+        BooruCmd::Download { site, id } => {
+            // Accept either the bare numeric id or the full `site:id` slug.
+            let (site_hint, post_id) = match id.split_once(':') {
+                Some((s, n)) => (Some(s.to_string()), n.to_string()),
+                None => (site.clone(), id.clone()),
+            };
+            let site_hint = site.clone().or(site_hint);
+            let entry =
+                booru_mod::find_in_index(paths, &post_id, site_hint.as_deref())?;
+            let integ = integrations::by_name("booru")?;
+            integ.apply(&entry, "", paths, config)?;
+            // entry.source is the predicted destination path that apply()
+            // wrote to — print it verbatim so the rofi wrapper can capture
+            // `$(wallrack booru download <id>)` and feed it into the
+            // wallpaper monitor picker.
+            println!("{}", entry.source.display());
+            Ok(ExitCode::SUCCESS)
+        }
+        BooruCmd::CurrentSite => {
+            let st = State::load(&paths.state_file())?;
+            let from_state = st.get(state::keys::BOORU_SITE).unwrap_or("").to_string();
+            let resolved = if !from_state.is_empty() {
+                from_state
+            } else if !config.booru.default_site.is_empty() {
+                config.booru.default_site.clone()
+            } else {
+                config
+                    .booru
+                    .resolved_sites()
+                    .keys()
+                    .next()
+                    .cloned()
+                    .unwrap_or_else(|| "konachan".to_string())
+            };
+            println!("{resolved}");
+            Ok(ExitCode::SUCCESS)
+        }
+        BooruCmd::Sites { format } => {
+            let sites = config.booru.resolved_sites();
+            let stdout = io::stdout().lock();
+            let mut out = BufWriter::new(stdout);
+            match format {
+                Format::Json => {
+                    serde_json::to_writer(&mut out, &sites)?;
+                }
+                Format::Rofi | Format::Walker | Format::Wofi | Format::Fuzzel => {
+                    for (k, v) in &sites {
+                        writeln!(out, "{k}\t{}", v.base_url)?;
+                    }
+                }
+            }
+            out.flush()?;
             Ok(ExitCode::SUCCESS)
         }
     }

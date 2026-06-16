@@ -12,7 +12,7 @@ frontend ships in this repo, but is not required.
 
 ## Integrations
 
-Three independent integrations, each with its own index, favorites bucket,
+Four independent integrations, each with its own index, favorites bucket,
 tag overrides, and per-integration backend commands:
 
 | Key         | What it indexes                                          | Drilling | Applies via                |
@@ -20,6 +20,7 @@ tag overrides, and per-integration backend commands:
 | `wallpaper` | Plain images in `wallpaper.dirs`                         | yes      | image backend (e.g. awww)  |
 | `we_image`  | Images extracted from Wallpaper Engine workshop projects | yes      | image backend (e.g. awww)  |
 | `we`        | Wallpaper Engine projects, live                          | no       | `linux-wallpaperengine`    |
+| `booru`     | Last page of a danbooru-style search (konachan, yandere, danbooru, gelbooru, safebooru) | no | download into `[booru].download_dir` |
 
 ## Demo
 
@@ -253,6 +254,9 @@ wallrack favorites toggle --integration=wallpaper /path/to/image.jpg
 wallrack monitors --integration=wallpaper --target=/path/to/image.jpg
 wallrack apply    --integration=wallpaper --monitor=DP-1 /path/to/image.jpg
 wallrack state  set view_mode favorites
+wallrack booru search --site=konachan --tags="scenery sky" --page=1
+wallrack booru download --site=konachan 123456
+wallrack booru sites --format=json
 wallrack info                            # show resolved paths & config
 ```
 
@@ -281,6 +285,56 @@ variants for the respective launchers.
 }
 ```
 
+## Booru integration
+
+Search danbooru-style image boards from the same CLI, paginate, and download
+picks into a configured folder. The integration key is `booru`; built-in
+sites are `konachan`, `yandere`, `danbooru`, `gelbooru`, `safebooru`. Add or
+override sites under `[booru.sites.<key>]` in `config.toml`.
+
+```sh
+# Paginated search — caches the page as the booru integration's index.
+wallrack booru search --site=konachan --tags="scenery sky" --page=1 --limit=20
+
+# Render the cached page through any picker format:
+wallrack list --integration=booru --format=rofi
+wallrack view --format=json  # if picker_mode state is `booru`
+
+# Download a post by id into [booru].download_dir.
+wallrack booru download --site=konachan 123456
+# or by the full slug emitted from search results:
+wallrack booru download konachan:123456
+
+# List configured + built-in sites.
+wallrack booru sites --format=json
+```
+
+Minimal config:
+
+```toml
+[booru]
+download_dir  = "~/Pictures/booru"
+default_site  = "konachan"
+per_page      = 20
+
+# Optional — override or add sites. base_url + api_kind are enough.
+# api_kind is one of: moebooru | danbooru | gelbooru
+# [booru.sites.danbooru]
+# base_url = "https://danbooru.donmai.us"
+# api_kind = "danbooru"
+# api_key  = "…"      # optional, danbooru/gelbooru
+# login    = "…"      # optional, danbooru
+```
+
+If you point `download_dir` at one of your `wallpaper.dirs`, downloaded
+images become normal wallpaper entries after the next
+`wallrack index --integration=wallpaper`.
+
+`wallrack booru search` pre-caches preview thumbs into
+`~/.cache/wallrack/booru/thumbs/` for any non-JSON format so rofi/wofi/walker
+/fuzzel rows render with an icon. Use `--no-thumbs` (or `--format=json`) to
+skip the extra round-trips.
+
 ## Daemon
 
 ```sh
@@ -302,6 +356,23 @@ remove tags). It's a complete working example, not the project's headline
 feature. See the comment block at the top of the script for keybindings and
 setup, and use it as a template if you want to build a frontend for a
 different launcher.
+
+In booru mode (Alt+1 cycles into it) the picker rewires a few keys:
+`Alt+2` reprompts for a search query (free-form input);
+`Alt+6` cycles the search site (konachan → yandere → danbooru → …);
+`Alt+7` / `Alt+8` page back / forward;
+`Alt+0` re-runs the cached search in the foreground.
+Top-of-list control rows let you trigger a new search or cycle sites; the
+remaining rows are posts, and selecting one downloads it then opens the
+wallpaper monitor picker so you can place it on a screen immediately.
+
+To map pagination to Ctrl+P / Ctrl+N instead, pass the rebind in your rofi
+launcher:
+
+```sh
+rofi -kb-custom-7 "Control+p" -kb-custom-8 "Control+n" \
+     -modi wallpaper:wallrack-rofi-picker -show wallpaper
+```
 
 [`wallrack_wofi_picker.sh`](./picker/wallrack_wofi_picker.sh) and
 [`wallrack_fuzzel_picker.sh`](./picker/wallrack_fuzzel_picker.sh) mirror

@@ -73,4 +73,11 @@ pub mod keys {
     pub const TAG_EDIT_TARGET: &str = "tag_edit_target";
     pub const TAG_ADD_MODE:    &str = "tag_add_mode";
     pub const RATING:          &str = "rating";
+    // booru-specific picker state. The booru integration is search-driven —
+    // these track the "what does my current page show?" context so the
+    // frontend can paginate / re-site without re-typing the query.
+    pub const BOORU_SITE:        &str = "booru_site";
+    pub const BOORU_QUERY:       &str = "booru_query";
+    pub const BOORU_PAGE:        &str = "booru_page";
+    pub const BOORU_SEARCH_MODE: &str = "booru_search_mode";
 }

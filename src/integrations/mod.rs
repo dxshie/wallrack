@@ -7,6 +7,7 @@ use crate::entry::{Entry, Index};
 use crate::paths::Paths;
 
 pub mod backend;
+pub mod booru;
 pub mod progress;
 pub mod wallpaper;
 pub mod wallpaper_engine;
@@ -90,6 +91,7 @@ pub fn all() -> Vec<Box<dyn Integration>> {
         Box::new(wallpaper::WallpaperIntegration),
         Box::new(wallpaper_engine_image::WallpaperEngineImageIntegration),
         Box::new(wallpaper_engine::WallpaperEngineIntegration),
+        Box::new(booru::BooruIntegration),
     ]
 }
 
@@ -100,6 +102,7 @@ pub fn by_name(name: &str) -> Result<Box<dyn Integration>> {
             Ok(Box::new(wallpaper_engine_image::WallpaperEngineImageIntegration))
         }
         "we" | "wallpaper_engine" => Ok(Box::new(wallpaper_engine::WallpaperEngineIntegration)),
+        "booru" => Ok(Box::new(booru::BooruIntegration)),
         other => Err(anyhow!("unknown integration: {other}")),
     }
 }

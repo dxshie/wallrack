@@ -85,6 +85,61 @@ apply_cmd         = 'awww img "{{image}}" --transition-type center -o "{{monitor
 monitors_cmd      = "hyprctl monitors | awk '/^Monitor / {print $2}'"
 current_image_cmd = "awww query | sed -nE 's/^[ :]*([^:]+):.*image: (.+)$/\\1\\t\\2/p'"
 
+# ─── booru integration ───────────────────────────────────────────────────────
+# Search danbooru-style image boards (konachan, yandere, danbooru, gelbooru,
+# safebooru come built-in) and download picks into download_dir. `wallrack
+# booru search ...` caches the current page as the booru integration's
+# "index" — `wallrack list --integration=booru` then renders it; `wallrack
+# booru download <id>` (or `apply --integration=booru`) downloads it.
+
+[booru]
+# Where downloaded full-size images land. Point this at one of your
+# `wallpaper.dirs` if you want booru downloads to show up in the wallpaper
+# picker after a re-index.
+download_dir = "~/Pictures/booru"
+# Site key used when `--site` is omitted.
+default_site = "konachan"
+# Results per `booru search` page. Most boorus cap at ~100.
+per_page = 20
+
+# Add a custom site or override a built-in one. api_kind is one of:
+#   moebooru  — konachan, yande.re
+#   danbooru  — danbooru.donmai.us
+#   gelbooru  — gelbooru.com, safebooru.org
+#
+# Authentication is per-family. Once logged in, the booru's API honors the
+# content filter (rating threshold, blacklist) saved on your account profile,
+# so logging in is the way to get NSFW posts past the default-anonymous
+# "safe-only" view on sites that have one.
+#
+# Override a built-in site to add credentials — unspecified fields fall back
+# to the builtin (so you don't need to re-state base_url or password_salt).
+#
+# ─ Moebooru (konachan, yande.re) ────────────────────────────────────────────
+# Auth: login + password (or pre-hashed password_hash).
+# [booru.sites.konachan]
+# login    = "your-username"
+# password = "your-password"
+# # password_salt is built-in for konachan/yande.re. For a self-hosted
+# # moebooru instance, set it to whatever the site's source uses:
+# # password_salt = "your-site-salt--{}--"
+# #
+# # Alternative — paste the hash from your browser's cookies and skip storing
+# # the plaintext password in config.toml:
+# # password_hash = "40-char-hex-sha1"
+#
+# ─ Danbooru ─────────────────────────────────────────────────────────────────
+# Auth: login + api_key (from your account → API Key page).
+# [booru.sites.danbooru]
+# login   = "your-login"
+# api_key = "your-api-key"
+#
+# ─ Gelbooru ─────────────────────────────────────────────────────────────────
+# Auth: user_id (numeric) + api_key. Find both on the My Account page.
+# [booru.sites.gelbooru]
+# user_id = "123456"
+# api_key = "your-api-key"
+
 # ─── wallpaper engine integration ─────────────────────────────────────────────
 # Live Wallpaper Engine projects applied via linux-wallpaperengine.
 

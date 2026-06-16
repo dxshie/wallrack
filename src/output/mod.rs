@@ -31,6 +31,10 @@ pub struct ViewHints {
     pub prompt: String,
     pub message: String,
     pub use_hot_keys: bool,
+    /// Set true to explicitly enable free-form input on a script-mode view
+    /// (rofi `no-custom: false`). Needed for the booru search prompt where
+    /// the user's typed query becomes the row label.
+    pub allow_custom: bool,
 }
 
 /// A row to emit. Either a real entry or a synthetic control row

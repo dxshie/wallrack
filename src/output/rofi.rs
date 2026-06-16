@@ -31,6 +31,15 @@ pub fn write<W: Write>(w: &mut W, rows: &[Row<'_>], hints: &ViewHints) -> Result
         w.write_all(hints.message.as_bytes())?;
         writeln!(w)?;
     }
+    if hints.allow_custom {
+        // Rofi's script-mode default is `no-custom: true`. Flip it off so
+        // typed input passes through as `$selection` on Enter.
+        w.write_all(&[NUL])?;
+        write!(w, "no-custom")?;
+        w.write_all(&[SEP])?;
+        write!(w, "false")?;
+        writeln!(w)?;
+    }
 
     for row in rows {
         match row {
