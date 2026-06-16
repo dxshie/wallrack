@@ -18,15 +18,23 @@
 #   wallpaper   – plain images from config wallpaper dirs
 #   we_image    – images extracted from Wallpaper Engine workshop folders
 #   we          – live Wallpaper Engine projects (via linux-wallpaperengine)
+#   booru       – live tag search against danbooru-style image boards
 #
 # Rofi script-mode keybindings:
-#   Alt+1  kb-custom-1   cycle integration (wallpaper → we_image → we)
-#   Alt+2  kb-custom-2   open tag filter selection
+#   Alt+1  kb-custom-1   cycle integration (wallpaper → we_image → we → booru)
+#   Alt+2  kb-custom-2   open tag filter selection  (booru: prompt for a new search query)
 #   Alt+3  kb-custom-3   toggle favorite on the highlighted entry
 #   Alt+4  kb-custom-4   switch between all wallpapers and favorites view
 #   Alt+5  kb-custom-5   edit tags on the highlighted entry (add/remove)
 #   Alt+6  kb-custom-6   cycle rating filter (All → Mature → Questionable → Everyone)
-#   Alt+0  kb-custom-10  rebuild the index (current integration)
+#                        (booru: cycle search site instead)
+#   Alt+7  kb-custom-7   booru: previous page
+#   Alt+8  kb-custom-8   booru: next page
+#   Alt+0  kb-custom-10  rebuild the index (current integration; no-op for booru)
+#
+# Rebinding the booru pagination keys to Ctrl+P / Ctrl+N is one rofi flag:
+#   rofi -kb-custom-7 "Control+p" -kb-custom-8 "Control+n" \
+#        -modi wallpaper:wallrack-rofi-picker -show wallpaper
 
 set -o pipefail
 
@@ -42,6 +50,19 @@ tag_mode=$(wallrack state get tag_mode 2>/dev/null || echo "")
 drill_path=$(wallrack state get drill_path 2>/dev/null || echo "")
 tag_edit_target=$(wallrack state get tag_edit_target 2>/dev/null || echo "")
 tag_add_mode=$(wallrack state get tag_add_mode 2>/dev/null || echo "")
+booru_search_mode=$(wallrack state get booru_search_mode 2>/dev/null || echo "")
+
+# Trace every invocation so the booru search flow can be reconstructed
+# after the fact. Logs all invocations (not just booru) so we can also see
+# how the Alt+1 cycle lands.
+mkdir -p "$HOME/.cache/wallrack/booru" 2>/dev/null || true
+{
+  printf '\n[%s] RETV=%q picker_mode=%q booru_search_mode=%q tag_add_mode=%q\n' \
+    "$(date +%H:%M:%S)" "$ROFI_RETV" "$picker_mode" "$booru_search_mode" "$tag_add_mode"
+  printf '  ROFI_INFO=%q selection=%q argc=%s\n' \
+    "$ROFI_INFO" "$selection" "$#"
+  i=1; for arg in "$@"; do printf '  arg[%d]=%q\n' "$i" "$arg"; i=$((i+1)); done
+} >> "$HOME/.cache/wallrack/booru/last_error.log" 2>/dev/null || true
 
 # ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -50,13 +71,75 @@ extract_image_from_entry() {
 }
 
 next_mode() {
-  # wallpaper → we_image → we → wallpaper
+  # wallpaper → we_image → we → booru → wallpaper
   case "$1" in
     wallpaper) echo we_image ;;
     we_image)  echo we ;;
-    we)        echo wallpaper ;;
+    we)        echo booru ;;
+    booru)     echo wallpaper ;;
     *)         echo wallpaper ;;
   esac
+}
+
+# ─── booru helpers ─────────────────────────────────────────────────────────
+
+booru_current_site() {
+  # Single source of truth in the binary — resolves state → config default →
+  # first configured site. Avoids re-implementing the resolution rules in
+  # bash (jq's alphabetical key ordering picked "danbooru" over the user's
+  # actual default and quietly broke searches).
+  local s
+  s=$(wallrack booru current-site 2>/dev/null)
+  [[ -z "$s" ]] && s=konachan
+  # Persist so the booru:site cycle has a starting point next time.
+  wallrack state set booru_site "$s" >/dev/null
+  echo "$s"
+}
+
+booru_next_site() {
+  local cur="$1"
+  # Round-robin through the configured sites.
+  local sites
+  sites=$(wallrack booru sites --format=json 2>/dev/null | jq -r 'keys[]' 2>/dev/null)
+  [[ -z "$sites" ]] && { echo "$cur"; return; }
+  local first="" next="" take=""
+  while IFS= read -r s; do
+    [[ -z "$s" ]] && continue
+    [[ -z "$first" ]] && first="$s"
+    if [[ "$take" == "1" ]]; then next="$s"; take=""; fi
+    [[ "$s" == "$cur" ]] && take=1
+  done <<< "$sites"
+  [[ -z "$next" ]] && next="$first"
+  echo "$next"
+}
+
+booru_run_search() {
+  # Run a search using the values currently in state and re-render the view.
+  local site query page
+  site=$(booru_current_site)
+  query=$(wallrack state get booru_query 2>/dev/null || echo "")
+  page=$(wallrack state get booru_page 2>/dev/null || echo 1)
+  if [[ -z "$query" ]]; then
+    # No query yet — just render the booru view's empty state.
+    wallrack view
+    return
+  fi
+  local err_log="$HOME/.cache/wallrack/booru/last_error.log"
+  mkdir -p "$(dirname "$err_log")"
+  : > "$err_log"
+  local notif_id
+  notif_id=$(notify-send --print-id "${NOTIFY_OPTIONS[@]}" "Searching $site for \`$query\` (page $page)…" 2>/dev/null || true)
+  # Keep stderr captured so a silent failure can be surfaced — the previous
+  # version dropped errors on the floor and made rofi look broken.
+  if ! wallrack booru search --site="$site" --tags="$query" --page="$page" --format=json >/dev/null 2>"$err_log"; then
+    local err_msg
+    err_msg=$(tr -d '\n' < "$err_log" | head -c 200)
+    [[ -z "$err_msg" ]] && err_msg="(no stderr — see ~/.cache/wallrack/booru/last_error.log)"
+    notify-send --replace-id="$notif_id" -u critical "${NOTIFY_OPTIONS[@]}" "Booru search failed on $site" "$err_msg"
+  else
+    notify-send --replace-id="$notif_id" "${NOTIFY_OPTIONS[@]}" "$site · \`$query\` · page $page"
+  fi
+  wallrack view
 }
 
 start_refresh_background() {
@@ -66,6 +149,12 @@ start_refresh_background() {
 
 ensure_index() {
   local integration="$1"
+  # booru has no on-disk source to index — `wallrack booru search` builds
+  # the index on demand from the API. Skip the first-run prompt.
+  if [[ "$integration" == "booru" ]]; then
+    wallrack index --integration=booru >/dev/null 2>&1 || true
+    return 0
+  fi
   if ! wallrack state get _index_built_$integration >/dev/null 2>&1; then
     if [[ ! -f "$HOME/.cache/wallrack/$integration/index.json" ]]; then
       local notif_id
@@ -77,12 +166,14 @@ ensure_index() {
 }
 
 # Resolve the wallrack entry id under the rofi highlight. Returns empty if
-# the row isn't taggable (folder rows, control rows).
+# the row isn't taggable (folder rows, control rows, booru-control rows).
 target_id_from_highlight() {
   if [[ "$ROFI_INFO" == folder:* ]]; then
     echo ""
   elif [[ "$ROFI_INFO" == image:* ]]; then
     echo "${ROFI_INFO#image:}"
+  elif [[ "$ROFI_INFO" == booru-post:* ]]; then
+    echo "${ROFI_INFO#booru-post:}"
   elif [[ "$ROFI_INFO" == back:* || "$ROFI_INFO" == tag:* || "$ROFI_INFO" == tagedit:* ]]; then
     echo ""
   elif [[ -n "$ROFI_INFO" ]]; then
@@ -161,28 +252,73 @@ apply_we() {
 
 # ─── ROFI callbacks ─────────────────────────────────────────────────────────
 
+# Submitting a custom-typed booru query (Alt+2 → type → Enter) fires
+# RETV=2 in rofi, not RETV=1: with no-custom enabled and a single Cancel
+# row that the typed text doesn't match, rofi reports the submit as a
+# cancel-with-text rather than a select. Treat any non-empty selection
+# while booru_search_mode is on as the query; only an empty selection is
+# a real Esc cancel. Same logic applies to the tag-add prompt.
+if [[ "$booru_search_mode" == "on" && ( "$ROFI_RETV" == "1" || "$ROFI_RETV" == "2" ) ]]; then
+  wallrack state unset booru_search_mode >/dev/null
+  new_query=$(printf '%s' "$selection" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  if [[ -z "$new_query" || "$new_query" == "← Cancel" ]]; then
+    wallrack view
+    exit 0
+  fi
+  wallrack state set booru_query "$new_query" >/dev/null
+  wallrack state set booru_page 1 >/dev/null
+  booru_run_search
+  exit 0
+fi
+
+if [[ "$tag_add_mode" == "on" && ( "$ROFI_RETV" == "1" || "$ROFI_RETV" == "2" ) ]]; then
+  wallrack state unset tag_add_mode >/dev/null
+  new_tag=$(printf '%s' "$selection" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  if [[ -z "$new_tag" || "$new_tag" == "← Cancel" ]]; then
+    render_tag_editor
+    exit 0
+  fi
+  if [[ -n "$tag_edit_target" ]]; then
+    wallrack tag add --integration="$picker_mode" --id="$tag_edit_target" "$new_tag" >/dev/null
+  fi
+  render_tag_editor
+  exit 0
+fi
+
 case "$ROFI_RETV" in
   1)
     # Item selected — route by ROFI_INFO payload.
 
-    # Tag-add mode: the user is typing a new tag in rofi's search box.
-    # `$selection` carries whatever they typed (rofi's allow-custom default).
-    # Cancel row uses an explicit info marker; everything else is treated as
-    # the new tag string.
-    if [[ "$tag_add_mode" == "on" ]]; then
-      wallrack state unset tag_add_mode >/dev/null
-      if [[ "$ROFI_INFO" == "tagedit:cancel" ]]; then
-        render_tag_editor
-        exit 0
-      fi
-      new_tag=$(printf '%s' "$selection" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-      if [[ -n "$new_tag" && -n "$tag_edit_target" ]]; then
-        wallrack tag add --integration="$picker_mode" --id="$tag_edit_target" "$new_tag" >/dev/null
-      fi
-      render_tag_editor
-      exit 0
+    # Booru post selection. Search (Alt+2) and site switch (Alt+6) are
+    # hotkey-only — no info markers — so this only handles post rows.
+    if [[ "$picker_mode" == "booru" ]]; then
+      case "$ROFI_INFO" in
+        booru-post:*)
+          post_id="${ROFI_INFO#booru-post:}"
+          # Download in the foreground so the captured stdout path is the
+          # truth — only then route into the wallpaper monitor picker so
+          # the user can place it on a screen.
+          notify-send "${NOTIFY_OPTIONS[@]}" "Downloading $post_id…"
+          dest=$(wallrack booru download "$post_id" 2>/dev/null | tail -n1)
+          if [[ -z "$dest" || ! -f "$dest" ]]; then
+            notify-send -u critical "${NOTIFY_OPTIONS[@]}" "Booru download failed for $post_id."
+            wallrack view
+            exit 0
+          fi
+          notify-send "${NOTIFY_OPTIONS[@]}" "Saved $(basename "$dest") — choose a monitor."
+          # Switch the picker into wallpaper-apply mode so the monitor row
+          # selection below routes into apply_image (which only fires when
+          # picker_mode != "we"). The user can Alt+1 back to booru
+          # afterwards; the booru search is still cached.
+          wallrack state set picker_mode wallpaper >/dev/null
+          wallrack monitors --integration=wallpaper --target="$dest"
+          exit 0
+          ;;
+      esac
     fi
 
+    # Tag-add mode: the user is typing a new tag in rofi's search box.
+    # `$selection` carries whatever they typed (rofi's allow-custom default).
     # Tag editor: when a target is staked out, selections drive the editor
     # rather than the main picker. Has to come before the normal routing so
     # `image:` rows underneath the editor don't fire the apply flow.
@@ -265,12 +401,20 @@ case "$ROFI_RETV" in
     wallrack state unset tag_mode >/dev/null
     wallrack state unset tag_edit_target >/dev/null
     wallrack state unset tag_add_mode >/dev/null
+    wallrack state unset booru_search_mode >/dev/null
     ensure_index "$new_mode"
     wallrack view
     exit 0
     ;;
   11)
-    # kb-custom-2 (Alt+2): toggle tag filter selection.
+    # kb-custom-2 (Alt+2): toggle tag filter selection. In booru mode the
+    # cached index has no useful per-entry tag distribution, so we hijack
+    # this key for "prompt for a new search query" instead.
+    if [[ "$picker_mode" == "booru" ]]; then
+      wallrack state set booru_search_mode on >/dev/null
+      wallrack view
+      exit 0
+    fi
     if [[ "$tag_mode" == "selecting" ]]; then
       wallrack state unset tag_mode >/dev/null
     else
@@ -352,6 +496,18 @@ case "$ROFI_RETV" in
   15)
     # kb-custom-6 (Alt+6): cycle the rating filter
     # All → Mature → Questionable → Everyone → All.
+    # In booru mode this key cycles the search site instead — rating-based
+    # filtering on a single search page isn't useful (every page is one site
+    # already), but jumping sites without losing the query is.
+    if [[ "$picker_mode" == "booru" ]]; then
+      cur_site=$(booru_current_site)
+      new_site=$(booru_next_site "$cur_site")
+      wallrack state set booru_site "$new_site" >/dev/null
+      wallrack state set booru_page 1 >/dev/null
+      notify-send "${NOTIFY_OPTIONS[@]}" "Booru site: $new_site"
+      booru_run_search
+      exit 0
+    fi
     current=$(wallrack state get rating 2>/dev/null || echo All)
     case "$current" in
       All)          next=Mature ;;
@@ -365,8 +521,52 @@ case "$ROFI_RETV" in
     wallrack view
     exit 0
     ;;
+  16)
+    # kb-custom-7 (Alt+7 by default; user-rebindable to Ctrl+P): booru
+    # previous page. No-op outside booru mode.
+    if [[ "$picker_mode" == "booru" ]]; then
+      query=$(wallrack state get booru_query 2>/dev/null || echo "")
+      if [[ -z "$query" ]]; then
+        notify-send "${NOTIFY_OPTIONS[@]}" "No active search — press Alt+2 to enter a query first."
+        wallrack view
+        exit 0
+      fi
+      page=$(wallrack state get booru_page 2>/dev/null || echo 1)
+      (( page > 1 )) && page=$(( page - 1 ))
+      wallrack state set booru_page "$page" >/dev/null
+      booru_run_search
+      exit 0
+    fi
+    wallrack view
+    exit 0
+    ;;
+  17)
+    # kb-custom-8 (Alt+8 by default; user-rebindable to Ctrl+N): booru
+    # next page.
+    if [[ "$picker_mode" == "booru" ]]; then
+      query=$(wallrack state get booru_query 2>/dev/null || echo "")
+      if [[ -z "$query" ]]; then
+        notify-send "${NOTIFY_OPTIONS[@]}" "No active search — press Alt+2 to enter a query first."
+        wallrack view
+        exit 0
+      fi
+      page=$(wallrack state get booru_page 2>/dev/null || echo 1)
+      page=$(( page + 1 ))
+      wallrack state set booru_page "$page" >/dev/null
+      booru_run_search
+      exit 0
+    fi
+    wallrack view
+    exit 0
+    ;;
   19)
-    # kb-custom-10 (Alt+0): rebuild index for current integration.
+    # kb-custom-10 (Alt+0): rebuild index for current integration. For booru
+    # this just re-runs the cached search blocking — there's no on-disk
+    # source to walk.
+    if [[ "$picker_mode" == "booru" ]]; then
+      booru_run_search
+      exit 0
+    fi
     wallrack state unset drill_path >/dev/null
     start_refresh_background
     notify-send "${NOTIFY_OPTIONS[@]}" "Refreshing $picker_mode index in the background. Re-open the picker once done."
