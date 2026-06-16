@@ -23,8 +23,7 @@ tag overrides, and per-integration backend commands:
 
 ## Demo
 
-<!-- TODO: replace with real video link -->
-[![demo video](https://placehold.co/640x360?text=demo+video+coming+soon)](https://example.com/wallrack-demo)
+[![preview](https://raw.githubusercontent.com/dxshie/wallrack/refs/heads/master/preview.jpg)](https://github.com/dxshie/wallrack)
 
 ## What wallrack does
 
