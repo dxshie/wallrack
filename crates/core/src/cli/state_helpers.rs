@@ -5,7 +5,7 @@
 use anyhow::Result;
 
 use crate::paths::Paths;
-use crate::state::{State, keys};
+use crate::state::State;
 
 /// Resolve the active integration: explicit override → persisted picker
 /// mode → `"wallpaper"`.
@@ -14,5 +14,5 @@ pub(super) fn resolve_integration(paths: &Paths, override_: Option<&str>) -> Res
         return Ok(s.to_string());
     }
     let state = State::load(&paths.state_file())?;
-    Ok(state.get_or(keys::PICKER_MODE, "wallpaper").to_string())
+    Ok(state.picker_mode().as_str().to_string())
 }

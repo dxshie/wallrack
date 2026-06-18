@@ -9,7 +9,7 @@ use crate::favorites::Favorites;
 use crate::integrations::{self, booru};
 use crate::output::{Format, Row, ViewHints, write_rows};
 use crate::paths::Paths;
-use crate::state::{self, State};
+use crate::state::State;
 
 use super::super::args::BooruCmd;
 
@@ -132,9 +132,8 @@ fn run_download(
 
 fn run_current_site(paths: &Paths, config: &Config) -> Result<ExitCode> {
     let st = State::load(&paths.state_file())?;
-    let from_state = st.get(state::keys::BOORU_SITE).unwrap_or("").to_string();
-    let resolved = if !from_state.is_empty() {
-        from_state
+    let resolved = if let Some(s) = st.booru_site() {
+        s.to_string()
     } else if !config.booru.default_site.is_empty() {
         config.booru.default_site.clone()
     } else {

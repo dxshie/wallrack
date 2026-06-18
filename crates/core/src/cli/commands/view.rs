@@ -1,6 +1,5 @@
 //! `wallrack view` — render the picker view based on persisted state.
-//! Dispatches to one of several sub-views (booru, tag-editor, add-tag,
-//! tag-mode select, or the default list/drill/grouped view).
+//! Dispatches to one of several sub-views via the [`PickerView`] enum.
 
 use std::io::{self, BufWriter, Write};
 use std::process::ExitCode;
@@ -12,7 +11,7 @@ use crate::favorites::Favorites;
 use crate::integrations;
 use crate::output::{Format, Row, ViewHints, write_rows};
 use crate::paths::Paths;
-use crate::state::{self, State};
+use crate::state::{PickerView, State};
 
 use super::super::render::{
     emit_drill_view, emit_empty_view, emit_flat, emit_grouped_view, filter_entries,
@@ -21,47 +20,35 @@ use super::tags;
 
 pub(in crate::cli) fn run(paths: &Paths, format: Format) -> Result<ExitCode> {
     let state = State::load(&paths.state_file())?;
-    let integration = state
-        .get_or(state::keys::PICKER_MODE, "wallpaper")
-        .to_string();
-    let view_mode = state.get_or(state::keys::VIEW_MODE, "all").to_string();
-    let drill = state.get_or(state::keys::DRILL_PATH, "").to_string();
-    let tag_filter = state.get_or(state::keys::TAG_FILTER, "").to_string();
-    let rating = state.get_or(state::keys::RATING, "").to_string();
-    let tag_mode = state.get_or(state::keys::TAG_MODE, "").to_string();
-    let tag_edit_target = state.get_or(state::keys::TAG_EDIT_TARGET, "").to_string();
-    let tag_add_mode = state.get_or(state::keys::TAG_ADD_MODE, "").to_string();
+    let integration = state.picker_mode().as_str().to_string();
 
-    // The tag-editor sub-views are state-driven so wrappers don't have to
-    // know how to render them. Order matches the rofi script's dispatch:
-    // add-mode wins over edit-target, which wins over tag-filter selection.
-    if tag_add_mode == "on" {
-        return cmd_add_tag_view(paths, &integration, &tag_edit_target, format);
+    match state.picker_view() {
+        PickerView::TagAdd => cmd_add_tag_view(paths, &integration, state.tag_edit_target(), format),
+        PickerView::TagEditor => {
+            cmd_tag_editor_view(paths, &integration, state.tag_edit_target(), format)
+        }
+        PickerView::TagSelect => tags::run(paths, Some(&integration), format),
+        PickerView::Booru => cmd_booru_view(paths, &state, format),
+        PickerView::Default => default_view(paths, &state, &integration, format),
     }
-    if !tag_edit_target.is_empty() {
-        return cmd_tag_editor_view(paths, &integration, &tag_edit_target, format);
-    }
+}
 
-    // Tag selection view short-circuits everything else.
-    if tag_mode == "selecting" {
-        return tags::run(paths, Some(&integration), format);
-    }
-
-    // The booru integration is search-driven — render its own header rows
-    // (search prompt, site, pagination) before any entries. Bypasses the
-    // favorites/tag/drill machinery that doesn't apply here.
-    if integration == "booru" {
-        return cmd_booru_view(paths, &state, format);
-    }
-
-    let integ = integrations::by_name(&integration)?;
+fn default_view(
+    paths: &Paths,
+    state: &State,
+    integration: &str,
+    format: Format,
+) -> Result<ExitCode> {
+    let integ = integrations::by_name(integration)?;
     let index = integ.read_index(paths)?;
     let favorites = Favorites::load(&paths.favorites_file())?;
 
-    let favorites_only = view_mode == "favorites";
-    let tag = (!tag_filter.is_empty()).then_some(tag_filter.as_str());
-    let rating_opt = (!rating.is_empty() && rating != "All").then_some(rating.as_str());
-    let folder_opt = (!drill.is_empty()).then_some(drill.as_str());
+    let favorites_only = state.view_mode().favorites_only();
+    let tag_filter = state.tag_filter();
+    let tag = (!tag_filter.is_empty()).then_some(tag_filter);
+    let rating_opt = state.rating_filter().as_filter();
+    let drill = state.drill_path();
+    let folder_opt = (!drill.is_empty()).then_some(drill);
 
     let filtered = filter_entries(
         &index,
@@ -78,7 +65,7 @@ pub(in crate::cli) fn run(paths: &Paths, format: Format) -> Result<ExitCode> {
     // Empty top-level view → render a placeholder row so rofi doesn't exit.
     // The drill view always carries a "← Back" row so it can stand on its own.
     if filtered.is_empty() && folder_opt.is_none() {
-        emit_empty_view(&mut out, &integration, favorites_only, tag, format)?;
+        emit_empty_view(&mut out, integration, favorites_only, tag, format)?;
         out.flush()?;
         return Ok(ExitCode::SUCCESS);
     }
@@ -88,7 +75,7 @@ pub(in crate::cli) fn run(paths: &Paths, format: Format) -> Result<ExitCode> {
             &mut out,
             &filtered,
             &favorites,
-            &integration,
+            integration,
             folder_path,
             favorites_only,
             tag,
@@ -102,7 +89,7 @@ pub(in crate::cli) fn run(paths: &Paths, format: Format) -> Result<ExitCode> {
             &mut out,
             &filtered,
             &favorites,
-            &integration,
+            integration,
             favorites_only,
             tag,
             format,
@@ -112,7 +99,7 @@ pub(in crate::cli) fn run(paths: &Paths, format: Format) -> Result<ExitCode> {
             &mut out,
             &filtered,
             &favorites,
-            &integration,
+            integration,
             favorites_only,
             tag,
             format,
@@ -123,27 +110,23 @@ pub(in crate::cli) fn run(paths: &Paths, format: Format) -> Result<ExitCode> {
 }
 
 /// Render the booru picker view. Two sub-views:
-///   * `BOORU_SEARCH_MODE = on` → search prompt (single Cancel row, picker
+///   * `booru_search_mode = on` → search prompt (single Cancel row, picker
 ///     uses rofi's allow-custom to capture the typed query).
 ///   * normal → control rows (Search / Site / Prev / Next) followed by the
 ///     cached posts from the last `wallrack booru search`.
 fn cmd_booru_view(paths: &Paths, state: &State, format: Format) -> Result<ExitCode> {
-    use std::io::Write;
     let cfg = Config::load(paths)?;
     let site = state
-        .get_or(state::keys::BOORU_SITE, &cfg.booru.default_site)
-        .to_string();
-    let query = state.get_or(state::keys::BOORU_QUERY, "").to_string();
-    let page: u32 = state
-        .get_or(state::keys::BOORU_PAGE, "1")
-        .parse()
-        .unwrap_or(1);
-    let search_mode = state.get_or(state::keys::BOORU_SEARCH_MODE, "").to_string();
+        .booru_site()
+        .map(str::to_string)
+        .unwrap_or(cfg.booru.default_site.clone());
+    let query = state.booru_query().to_string();
+    let page = state.booru_page();
 
     let stdout = io::stdout().lock();
     let mut out = BufWriter::new(stdout);
 
-    if search_mode == "on" {
+    if state.booru_search_mode_on() {
         let rows = [Row::Control {
             label: "← Cancel".to_string(),
             info: "booru:cancel-search".to_string(),

@@ -7,7 +7,7 @@ use crate::favorites::Favorites;
 use crate::integrations;
 use crate::output::Format;
 use crate::paths::Paths;
-use crate::state::{self, State};
+use crate::state::State;
 
 use super::super::render::{
     emit_drill_view, emit_empty_view, emit_flat, emit_grouped_view, filter_entries,
@@ -28,19 +28,14 @@ pub(in crate::cli) fn run(paths: &Paths, args: ListArgs) -> Result<ExitCode> {
     let (integration, favorites_only, tag, rating, folder, group) = if args.use_state {
         // Pull filter context from persisted picker state.
         let state = State::load(&paths.state_file())?;
-        let picker_mode = state
-            .get_or(state::keys::PICKER_MODE, "wallpaper")
-            .to_string();
-        let view_mode = state.get_or(state::keys::VIEW_MODE, "all").to_string();
-        let drill = state.get_or(state::keys::DRILL_PATH, "").to_string();
-        let tag_filter = state.get_or(state::keys::TAG_FILTER, "").to_string();
-        let rating = state.get_or(state::keys::RATING, "").to_string();
+        let drill = state.drill_path().to_string();
+        let tag_filter = state.tag_filter().to_string();
         let group = drill.is_empty(); // group at top level, flat inside a folder
         (
-            picker_mode,
-            view_mode == "favorites",
+            state.picker_mode().as_str().to_string(),
+            state.view_mode().favorites_only(),
             (!tag_filter.is_empty()).then_some(tag_filter),
-            (!rating.is_empty() && rating != "All").then_some(rating),
+            state.rating_filter().as_filter().map(str::to_string),
             (!drill.is_empty()).then_some(drill),
             group,
         )
