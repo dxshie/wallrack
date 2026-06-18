@@ -35,6 +35,11 @@ pub struct ViewHints {
     /// (rofi `no-custom: false`). Needed for the booru search prompt where
     /// the user's typed query becomes the row label.
     pub allow_custom: bool,
+    /// Pre-populate the picker's input field. Empty means "leave blank".
+    /// Used to prime the booru search prompt with the active query so the
+    /// user can edit it instead of retyping. Rofi-only — other pickers
+    /// don't expose an equivalent.
+    pub filter: String,
 }
 
 /// A row to emit. Either a real entry or a synthetic control row

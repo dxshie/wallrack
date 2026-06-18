@@ -968,6 +968,7 @@ fn view_hints_for(
         message: "Alt+1 mode | Alt+2 tag | Alt+3 fav | Alt+4 view | Alt+5 edit tags | Alt+6 rating | Alt+0 refresh".to_string(),
         use_hot_keys: true,
         allow_custom: false,
+        filter: String::new(),
     }
 }
 
@@ -1132,6 +1133,11 @@ fn cmd_booru_view(paths: &Paths, state: &State, format: Format) -> Result<ExitCo
             // Let the user's typed query come through as `$selection` —
             // there is no row to select for free-form text otherwise.
             allow_custom: true,
+            // Best-effort: rofi's `filter` header only pre-fills the input
+            // on the initial mode launch, not on script callbacks (which is
+            // how Alt+2 lands here). Emit it anyway — harmless, and the rare
+            // rofi build that honors it on re-invocation benefits.
+            filter: query.clone(),
         };
         write_rows(&mut out, &rows, &hints, format)?;
         out.flush()?;
@@ -1197,6 +1203,7 @@ fn cmd_booru_view(paths: &Paths, state: &State, format: Format) -> Result<ExitCo
         message,
         use_hot_keys: true,
         allow_custom: false,
+        filter: String::new(),
     };
     write_rows(&mut out, &rows, &hints, format)?;
     out.flush()?;
@@ -1249,6 +1256,7 @@ fn cmd_tag_editor_view(
         message: "Enter to remove tag | \"+ Add\" prompts for a new tag | ← Back".to_string(),
         use_hot_keys: true,
         allow_custom: false,
+        filter: String::new(),
     };
     let stdout = io::stdout().lock();
     let mut out = BufWriter::new(stdout);
@@ -1294,6 +1302,7 @@ fn cmd_add_tag_view(
         use_hot_keys: true,
         // Free-form tag entry — `$selection` carries the typed string.
         allow_custom: true,
+        filter: String::new(),
     };
     let stdout = io::stdout().lock();
     let mut out = BufWriter::new(stdout);
@@ -1370,6 +1379,7 @@ fn cmd_tags(paths: &Paths, integration: Option<&str>, format: Format) -> Result<
                 message: "Select a tag — Alt+2 to cancel".to_string(),
                 use_hot_keys: true,
                 allow_custom: false,
+                filter: String::new(),
             };
             write_rows(&mut out, &rows, &hints, format)?;
         }
@@ -1659,6 +1669,7 @@ fn cmd_state(paths: &Paths, cmd: StateCmd) -> Result<ExitCode> {
             state.remove(state::keys::TAG_EDIT_TARGET);
             state.remove(state::keys::TAG_ADD_MODE);
             state.remove(state::keys::BOORU_SEARCH_MODE);
+            state.remove(state::keys::APPLY_INTEGRATION_OVERRIDE);
             state.save(&state_path)?;
             Ok(ExitCode::SUCCESS)
         }
@@ -1721,6 +1732,7 @@ fn cmd_monitors(
                 message: String::new(),
                 use_hot_keys: false,
                 allow_custom: false,
+                filter: String::new(),
             };
             write_rows(&mut out, &rows, &hints, format)?;
         }
@@ -1742,6 +1754,7 @@ fn cmd_monitors(
                 message: String::new(),
                 use_hot_keys: false,
                 allow_custom: false,
+                filter: String::new(),
             };
             write_rows(&mut out, &rows, &hints, format)?;
         }
@@ -1926,7 +1939,8 @@ fn cmd_booru(paths: &Paths, config: &Config, cmd: BooruCmd) -> Result<ExitCode> 
                 )
             })?;
             let limit = limit.unwrap_or(config.booru.per_page).clamp(1, 200);
-            let posts = booru_mod::search(&site_key, &site_def, &tags, page, limit)
+            let policy = config.booru.http_policy();
+            let posts = booru_mod::search(&site_key, &site_def, &tags, page, limit, &policy)
                 .with_context(|| format!("search {site_key}"))?;
             log::info!(
                 "booru: {} posts from {site_key} (page {page}, query `{tags}`)",
@@ -1969,6 +1983,7 @@ fn cmd_booru(paths: &Paths, config: &Config, cmd: BooruCmd) -> Result<ExitCode> 
                 ),
                 use_hot_keys: false,
                 allow_custom: false,
+                filter: String::new(),
             };
             write_rows(&mut out, &rows, &hints, format)?;
             out.flush()?;

@@ -80,4 +80,9 @@ pub mod keys {
     pub const BOORU_QUERY:       &str = "booru_query";
     pub const BOORU_PAGE:        &str = "booru_page";
     pub const BOORU_SEARCH_MODE: &str = "booru_search_mode";
+    // Cross-integration apply hand-off. The booru flow downloads then routes
+    // into the wallpaper monitor picker, but picker_mode stays `booru` so the
+    // user lands back in the search on the next open — this key tells the
+    // apply step "this round, use the wallpaper integration, not picker_mode".
+    pub const APPLY_INTEGRATION_OVERRIDE: &str = "apply_integration_override";
 }

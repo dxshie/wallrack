@@ -191,6 +191,22 @@ pub struct BooruConfig {
     /// ~100; konachan/yandere default to 21 in the web UI.
     #[serde(default = "default_booru_per_page")]
     pub per_page: u32,
+    /// Per-request timeout for booru search API calls, in seconds. Applies
+    /// to both connect and read. A flaky network on a slow site can stall
+    /// rofi for the full duration — keep this short enough that the user
+    /// notices the retry, long enough that healthy queries succeed.
+    #[serde(default = "default_booru_request_timeout_secs")]
+    pub request_timeout_secs: u64,
+    /// Max retry attempts after the initial search request fails on a
+    /// transient error (network/timeout, 5xx, 429). 0 disables retries.
+    /// 4xx other than 429 are never retried — those mean "bad query" and
+    /// will fail the same way every time.
+    #[serde(default = "default_booru_max_retries")]
+    pub max_retries: u32,
+    /// Initial backoff between retries, in milliseconds. Doubled on each
+    /// subsequent attempt (capped at 30s) for a simple exponential.
+    #[serde(default = "default_booru_retry_backoff_ms")]
+    pub retry_backoff_ms: u64,
     /// Configured sites. Empty maps fall back to the built-in defaults
     /// (`konachan`, `yandere`, `danbooru`, `gelbooru`, `safebooru`).
     #[serde(default)]
@@ -203,7 +219,29 @@ impl Default for BooruConfig {
             download_dir: default_booru_download_dir(),
             default_site: default_booru_default_site(),
             per_page: default_booru_per_page(),
+            request_timeout_secs: default_booru_request_timeout_secs(),
+            max_retries: default_booru_max_retries(),
+            retry_backoff_ms: default_booru_retry_backoff_ms(),
             sites: BTreeMap::new(),
+        }
+    }
+}
+
+/// Resolved HTTP policy for booru search requests. Built from `BooruConfig`
+/// at call time so per-site overrides (future work) can layer cleanly.
+#[derive(Debug, Clone, Copy)]
+pub struct BooruHttpPolicy {
+    pub timeout: std::time::Duration,
+    pub max_retries: u32,
+    pub retry_backoff: std::time::Duration,
+}
+
+impl BooruConfig {
+    pub fn http_policy(&self) -> BooruHttpPolicy {
+        BooruHttpPolicy {
+            timeout: std::time::Duration::from_secs(self.request_timeout_secs.max(1)),
+            max_retries: self.max_retries,
+            retry_backoff: std::time::Duration::from_millis(self.retry_backoff_ms),
         }
     }
 }
@@ -246,6 +284,9 @@ impl BooruConfig {
 fn default_booru_download_dir() -> String { "~/Pictures/booru".to_string() }
 fn default_booru_default_site() -> String { "konachan".to_string() }
 fn default_booru_per_page() -> u32 { 20 }
+fn default_booru_request_timeout_secs() -> u64 { 30 }
+fn default_booru_max_retries() -> u32 { 2 }
+fn default_booru_retry_backoff_ms() -> u64 { 500 }
 
 fn builtin_booru_sites() -> BTreeMap<String, BooruSite> {
     let mut m = BTreeMap::new();

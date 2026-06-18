@@ -40,6 +40,13 @@ pub fn write<W: Write>(w: &mut W, rows: &[Row<'_>], hints: &ViewHints) -> Result
         write!(w, "false")?;
         writeln!(w)?;
     }
+    if !hints.filter.is_empty() {
+        w.write_all(&[NUL])?;
+        write!(w, "filter")?;
+        w.write_all(&[SEP])?;
+        w.write_all(hints.filter.as_bytes())?;
+        writeln!(w)?;
+    }
 
     for row in rows {
         match row {

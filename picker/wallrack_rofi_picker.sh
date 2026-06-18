@@ -306,11 +306,13 @@ case "$ROFI_RETV" in
             exit 0
           fi
           notify-send "${NOTIFY_OPTIONS[@]}" "Saved $(basename "$dest") — choose a monitor."
-          # Switch the picker into wallpaper-apply mode so the monitor row
-          # selection below routes into apply_image (which only fires when
-          # picker_mode != "we"). The user can Alt+1 back to booru
-          # afterwards; the booru search is still cached.
-          wallrack state set picker_mode wallpaper >/dev/null
+          # The next callback (monitor row selection) needs to apply via the
+          # `wallpaper` integration so awww/swww handles the freshly-downloaded
+          # file — but picker_mode must stay `booru` so re-opening the picker
+          # returns to the cached search results. Stash the apply-time
+          # integration in a transient state key the RETV=1 apply branch will
+          # consume + clear.
+          wallrack state set apply_integration_override wallpaper >/dev/null
           wallrack monitors --integration=wallpaper --target="$dest"
           exit 0
           ;;
@@ -377,10 +379,22 @@ case "$ROFI_RETV" in
       # Monitor picker selection: ROFI_INFO carries the target (image path
       # for image integrations, folder path for `we`). Apply detached so
       # rofi closes immediately.
-      if [[ "$picker_mode" == "we" ]]; then
+      #
+      # The booru → monitor flow stashes `apply_integration_override` so the
+      # apply runs against `wallpaper` (the integration that actually owns
+      # awww) without flipping picker_mode away from `booru`. One-shot —
+      # consume + clear it here so subsequent apply rounds use picker_mode.
+      apply_override=$(wallrack state get apply_integration_override 2>/dev/null || echo "")
+      if [[ -n "$apply_override" ]]; then
+        wallrack state unset apply_integration_override >/dev/null
+        apply_integration="$apply_override"
+      else
+        apply_integration="$picker_mode"
+      fi
+      if [[ "$apply_integration" == "we" ]]; then
         ( apply_we "$ROFI_INFO" "$selection" ) >/dev/null 2>&1 < /dev/null &
       else
-        ( apply_image "$ROFI_INFO" "$selection" "$picker_mode" ) >/dev/null 2>&1 < /dev/null &
+        ( apply_image "$ROFI_INFO" "$selection" "$apply_integration" ) >/dev/null 2>&1 < /dev/null &
       fi
       disown 2>/dev/null || true
     else

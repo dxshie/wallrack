@@ -101,6 +101,16 @@ download_dir = "~/Pictures/booru"
 default_site = "konachan"
 # Results per `booru search` page. Most boorus cap at ~100.
 per_page = 20
+# Per-request timeout for booru search API calls (seconds). The picker stalls
+# on rofi for the full duration when a site is slow — pick a value short enough
+# to notice the retry, long enough that healthy queries succeed.
+request_timeout_secs = 30
+# Retry attempts after a transient failure (timeout / connect error / HTTP 5xx
+# / 429). 0 disables retries. 4xx other than 429 are never retried — those mean
+# bad query or bad auth and will fail the same way each time.
+max_retries = 2
+# Initial backoff between retries (ms). Doubled per attempt, capped at 30s.
+retry_backoff_ms = 500
 
 # Add a custom site or override a built-in one. api_kind is one of:
 #   moebooru  — konachan, yande.re
