@@ -1,0 +1,30 @@
+[package]
+name = "wallrack-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "wallrack_core"
+path = "src/lib.rs"
+
+[dependencies]
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+dirs = { workspace = true }
+walkdir = { workspace = true }
+image = { workspace = true }
+jpeg-decoder = { workspace = true }
+notify = { workspace = true }
+notify-debouncer-full = { workspace = true }
+nix = { workspace = true }
+rayon = { workspace = true }
+sha2 = { workspace = true }
+sha1 = { workspace = true }
+hex = { workspace = true }
+log = { workspace = true }
+reqwest = { workspace = true }
