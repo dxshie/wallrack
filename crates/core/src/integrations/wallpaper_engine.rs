@@ -16,6 +16,7 @@ use crate::config::Config;
 use crate::entry::{Entry, Index};
 use crate::integrations::Integration;
 use crate::integrations::backend;
+use crate::integrations::scan::ProjectJson;
 use crate::integrations::thumb_filename_for;
 use crate::paths::{Paths, atomic_write};
 use crate::thumbnail;
@@ -23,18 +24,6 @@ use crate::thumbnail;
 pub const NAME: &str = "we";
 
 pub struct WallpaperEngineIntegration;
-
-#[derive(Debug, Deserialize, Default)]
-struct ProjectJson {
-    #[serde(default)]
-    title: Option<String>,
-    #[serde(default)]
-    contentrating: Option<String>,
-    #[serde(default)]
-    preview: Option<String>,
-    #[serde(default)]
-    tags: Option<Vec<String>>,
-}
 
 impl Integration for WallpaperEngineIntegration {
     fn name(&self) -> &'static str { NAME }

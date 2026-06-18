@@ -9,6 +9,7 @@ use crate::paths::Paths;
 pub mod backend;
 pub mod booru;
 pub mod progress;
+pub mod scan;
 pub mod wallpaper;
 pub mod wallpaper_engine;
 pub mod wallpaper_engine_image;

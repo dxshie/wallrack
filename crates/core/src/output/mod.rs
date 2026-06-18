@@ -6,10 +6,8 @@ use clap::ValueEnum;
 
 use crate::entry::Entry;
 
-pub mod fuzzel;
+mod dmenu;
 pub mod rofi;
-pub mod walker;
-pub mod wofi;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum Format {
@@ -19,6 +17,8 @@ pub enum Format {
     Walker,
     /// Wofi dmenu with `img:` prefix; routing payload tacked on after U+001F.
     Wofi,
+    /// Fuzzel — TSV-compatible with walker, parsed by the bundled fuzzel
+    /// picker shim before being passed to fuzzel's native dmenu mode.
     Fuzzel,
     /// JSON array of entries — for any other picker / programmatic use.
     Json,
@@ -71,24 +71,66 @@ pub fn write_rows<W: Write>(
 ) -> Result<()> {
     match format {
         Format::Rofi => rofi::write(w, rows, hints),
-        Format::Walker => walker::write(w, rows, hints),
-        Format::Wofi => wofi::write(w, rows, hints),
-        Format::Fuzzel => fuzzel::write(w, rows, hints),
+        Format::Walker | Format::Fuzzel => dmenu::write(w, rows, hints, &dmenu::WALKER),
+        Format::Wofi => dmenu::write(w, rows, hints, &dmenu::WOFI),
         Format::Json => write_json(w, rows),
     }
 }
 
+/// Common display/icon/payload triple extracted from any `Row`. The three
+/// dmenu dialects render the same data with different separators; the rofi
+/// renderer also reuses these strings via [`row_parts`].
+pub(crate) struct RowParts {
+    pub display: String,
+    pub icon: String,
+    pub payload: String,
+}
+
+pub(crate) fn row_parts(row: &Row<'_>) -> RowParts {
+    match row {
+        Row::Entry {
+            entry,
+            favorite,
+            label,
+            info,
+        } => {
+            let star = if *favorite { "\u{2605} " } else { "" };
+            let display = match label {
+                Some(custom) => format!("{star}{custom}"),
+                None => format!("{star}{} - {}", entry.title, entry.id),
+            };
+            let icon = entry.thumb.to_string_lossy().into_owned();
+            let payload = info
+                .clone()
+                .unwrap_or_else(|| format!("image:{}", entry.id));
+            RowParts {
+                display,
+                icon,
+                payload,
+            }
+        }
+        Row::Control { label, info, icon } => RowParts {
+            display: label.clone(),
+            icon: icon
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            payload: info.clone(),
+        },
+    }
+}
+
 fn write_json<W: Write>(w: &mut W, rows: &[Row<'_>]) -> Result<()> {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     let arr: Vec<Value> = rows
         .iter()
-        .filter_map(|row| match row {
+        .map(|row| match row {
             Row::Entry {
                 entry,
                 favorite,
                 label,
                 info,
-            } => Some(json!({
+            } => json!({
                 "integration": entry.integration,
                 "id": entry.id,
                 "title": label.clone().unwrap_or_else(|| entry.title.clone()),
@@ -100,13 +142,13 @@ fn write_json<W: Write>(w: &mut W, rows: &[Row<'_>]) -> Result<()> {
                 "subfolder": entry.subfolder,
                 "favorite": favorite,
                 "info": info,
-            })),
-            Row::Control { label, info, icon } => Some(json!({
+            }),
+            Row::Control { label, info, icon } => json!({
                 "control": true,
                 "label": label,
                 "info": info,
                 "icon": icon,
-            })),
+            }),
         })
         .collect();
     serde_json::to_writer(w, &arr)?;

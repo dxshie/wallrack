@@ -7,13 +7,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 use rayon::prelude::*;
-use walkdir::WalkDir;
 
 use crate::config::Config;
 use crate::entry::{Entry, Index};
 use crate::integrations::backend;
 use crate::integrations::progress::Progress;
-use crate::integrations::{IMAGE_EXTS, Integration, thumb_filename_for};
+use crate::integrations::scan::walk_images;
+use crate::integrations::{Integration, thumb_filename_for};
 use crate::paths::Paths;
 use crate::thumbnail;
 
@@ -107,24 +107,9 @@ struct EntrySource {
 }
 
 fn collect_images(root: &Path, out: &mut Vec<EntrySource>) {
-    for img in walk_images(root) {
+    for img in walk_images(root, false) {
         out.push(EntrySource { image: img, root: root.to_path_buf() });
     }
-}
-
-fn walk_images(root: &Path) -> Vec<PathBuf> {
-    WalkDir::new(root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .map(|e| e.into_path())
-        .filter(|p| {
-            p.extension()
-                .and_then(|s| s.to_str())
-                .map(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
-                .unwrap_or(false)
-        })
-        .collect()
 }
 
 fn build_entry(src: &EntrySource, thumbs_dir: &Path, size: u32) -> Result<Entry> {

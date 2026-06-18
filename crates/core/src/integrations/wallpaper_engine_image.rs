@@ -7,30 +7,19 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 use rayon::prelude::*;
-use serde::Deserialize;
-use walkdir::WalkDir;
 
 use crate::config::Config;
 use crate::entry::{Entry, Index};
 use crate::integrations::backend;
 use crate::integrations::progress::Progress;
-use crate::integrations::{IMAGE_EXTS, Integration, thumb_filename_for};
+use crate::integrations::scan::{read_project_json, walk_images};
+use crate::integrations::{Integration, thumb_filename_for};
 use crate::paths::Paths;
 use crate::thumbnail;
 
 pub const NAME: &str = "we_image";
 
 pub struct WallpaperEngineImageIntegration;
-
-#[derive(Debug, Deserialize, Default)]
-struct ProjectJson {
-    #[serde(default)]
-    title: Option<String>,
-    #[serde(default)]
-    contentrating: Option<String>,
-    #[serde(default)]
-    tags: Option<Vec<String>>,
-}
 
 impl Integration for WallpaperEngineImageIntegration {
     fn name(&self) -> &'static str { NAME }
@@ -136,7 +125,7 @@ fn collect_workshop_images(workshop: &Path, out: &mut Vec<EntrySource>) -> Resul
             ),
             Err(_) => (workshop_id.clone(), String::new(), Vec::new()),
         };
-        for img in walk_images(&project_dir) {
+        for img in walk_images(&project_dir, true) {
             out.push(EntrySource {
                 image: img,
                 title: title.clone(),
@@ -148,36 +137,6 @@ fn collect_workshop_images(workshop: &Path, out: &mut Vec<EntrySource>) -> Resul
         }
     }
     Ok(())
-}
-
-fn walk_images(root: &Path) -> Vec<PathBuf> {
-    WalkDir::new(root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .map(|e| e.into_path())
-        .filter(|p| {
-            // Skip the project's preview image — that's intended as a
-            // thumbnail, not a wallpaper.
-            if p.file_name()
-                .and_then(|s| s.to_str())
-                .map(|s| s.to_ascii_lowercase().contains("preview"))
-                .unwrap_or(false)
-            {
-                return false;
-            }
-            p.extension()
-                .and_then(|s| s.to_str())
-                .map(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
-                .unwrap_or(false)
-        })
-        .collect()
-}
-
-fn read_project_json(path: &Path) -> Result<ProjectJson> {
-    let body = std::fs::read_to_string(path)?;
-    let parsed: ProjectJson = serde_json::from_str(&body)?;
-    Ok(parsed)
 }
 
 fn build_entry(src: &EntrySource, thumbs_dir: &Path, size: u32) -> Result<Entry> {
