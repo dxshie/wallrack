@@ -4,7 +4,7 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 
 use crate::config::Config;
-use crate::integrations::{self, Integration};
+use crate::integrations::{self, Integration, SourceKind};
 use crate::paths::Paths;
 
 use super::super::notify::{is_rofi_context, notify_send};
@@ -12,7 +12,13 @@ use super::super::style::C;
 
 pub(in crate::cli) fn run(paths: &Paths, config: &Config, integration: &str) -> Result<ExitCode> {
     let targets: Vec<Box<dyn Integration>> = if integration == "all" {
+        // `--all` rebuilds every scan-backed source. Search-backed sources
+        // (booru) skip — their index is whatever the last search returned,
+        // and re-reading it would be a no-op.
         integrations::all()
+            .into_iter()
+            .filter(|i| matches!(i.kind(), SourceKind::Scan))
+            .collect()
     } else {
         vec![integrations::by_name(integration)?]
     };

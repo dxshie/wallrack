@@ -17,7 +17,7 @@ use anyhow::{Context, Result, anyhow};
 
 use crate::config::{BackendConfig, Config};
 use crate::entry::{Entry, Index};
-use crate::integrations::Integration;
+use crate::integrations::{Integration, SourceKind};
 use crate::paths::Paths;
 
 mod api;
@@ -36,6 +36,10 @@ pub struct BooruIntegration;
 impl Integration for BooruIntegration {
     fn name(&self) -> &'static str { NAME }
     fn label(&self) -> &'static str { "Booru" }
+
+    // Booru is search-driven — there's no directory to scan, just the cached
+    // result of the last `wallrack booru search` call.
+    fn kind(&self) -> SourceKind { SourceKind::Search }
 
     // Booru entries are individual posts — drilling into a subfolder isn't
     // meaningful, and the existing drill UI would only confuse the picker.

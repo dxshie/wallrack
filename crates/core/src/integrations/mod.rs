@@ -17,6 +17,20 @@ pub mod wallpaper_engine_image;
 /// File extensions every image-scanning integration considers.
 pub const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "bmp", "gif", "webp"];
 
+/// How a source's index is produced. `Scan` sources rebuild from a
+/// filesystem walk; `Search` sources cache the result of an external query
+/// and have nothing meaningful to "rebuild" without new query parameters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceKind {
+    /// Index built by scanning configured directories. `index()` is the
+    /// canonical refresh operation. `wallrack index --all` includes these.
+    Scan,
+    /// Index is the cached result of the last search call. There is no
+    /// idempotent "rebuild" — the user has to issue a new search. `wallrack
+    /// index --all` skips these (re-reading the cache would be a no-op).
+    Search,
+}
+
 /// Common surface every wallpaper backend implements.
 ///
 /// `name()` is also the on-disk integration key — it shows up in cache paths
@@ -26,6 +40,11 @@ pub trait Integration {
 
     /// User-facing label for the picker prompt.
     fn label(&self) -> &'static str { self.name() }
+
+    /// How this source builds its index. Defaults to `Scan`; the booru
+    /// integration overrides to `Search`. Used by `wallrack index --all`
+    /// to skip search-backed sources.
+    fn kind(&self) -> SourceKind { SourceKind::Scan }
 
     /// Whether drilling into subfolders is meaningful for this integration.
     /// `false` for the WE integration: it applies the whole project, not
