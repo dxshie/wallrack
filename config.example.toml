@@ -152,15 +152,41 @@ retry_backoff_ms = 500
 
 # ─── wallpaper engine integration ─────────────────────────────────────────────
 # Live Wallpaper Engine projects applied via linux-wallpaperengine.
+#
+# linux-wallpaperengine is a single-process beast — every monitor that should
+# show a live wallpaper has to be passed on the same invocation as another
+# `--screen-root M --bg ID` pair. wallrack tracks which monitor is owned by
+# which integration in the `applied` sled tree (see `wallrack applied list`),
+# and on every WE apply it kills any running linux-wallpaperengine and
+# relaunches one process with one pair per WE-owned monitor.
+#
+# That composition lives in the {{we_screens}} placeholder. It expands to e.g.
+#   --screen-root 'DP-1' --bg '111' --screen-root 'DP-2' --bg '222'
+# when two monitors are WE-owned, or to a single pair, or to empty.
+#
+# Applying a non-WE integration (wallpaper / we_image) to a monitor previously
+# owned by `we` releases that monitor from the running WE process and relaunches
+# it with the remainder, so the live overlay no longer sits on top of the new
+# still wallpaper.
+#
+# `wallrack applied restore` is the WM-startup hook — it replays every monitor's
+# tracked wallpaper, batching all WE monitors into one `linux-wallpaperengine`
+# spawn. Wire it into Hyprland with `exec-once = wallrack applied restore`
+# (add `--with-hooks` if you want pre/post_apply_hook to fire per monitor on
+# startup; otherwise hooks are suppressed so theming commands like matugen
+# don't fire N times in a row).
 
 [wallpaper_engine]
 workshop_dir = "~/.local/share/Steam/steamapps/workshop/content/431960"
 
 [wallpaper_engine.backend]
-# linux-wallpaperengine is launched detached via setsid. Any previously
-# running instance is killed and waited for before this command is spawned,
-# so the template only needs to launch the new one.
-apply_cmd    = 'uwsm app -- linux-wallpaperengine --screenshot-delay 1000 --screenshot ~/.cache/lock.jpg --autoplay-policy=no-user-gesture-required --no-audio-processing --disable-parallax --silent --no-fullscreen-pause --scaling fill --screen-root "{{monitor}}" --bg "{{workshop_id}}"'
+# {{we_screens}} is the multi-monitor expansion. The single-monitor
+# placeholders {{monitor}} and {{workshop_id}} are still passed (filled with
+# the first WE-owned monitor in deterministic order) so pre-0.3 templates keep
+# producing a working single-screen command, but new setups should template
+# against {{we_screens}}.
+apply_cmd    = 'uwsm app -- linux-wallpaperengine --screenshot-delay 1000 --screenshot ~/.cache/lock.jpg --autoplay-policy=no-user-gesture-required --no-audio-processing --disable-parallax --silent --no-fullscreen-pause --scaling fill {{we_screens}}'
 monitors_cmd = "hyprctl monitors | awk '/^Monitor / {print $2}'"
 # current_image_cmd is not used for the we integration — wallrack tracks
-# per-monitor WE state internally.
+# per-monitor WE state via the `applied` sled tree; query it with
+# `wallrack applied list`.

@@ -93,6 +93,7 @@ pub fn run() -> Result<ExitCode> {
             &monitor,
             &target,
         ),
+        Cmd::Applied { cmd } => commands::applied::run(&paths, &config, cmd),
         Cmd::Daemon { cmd } => commands::daemon::run(&paths, &config, cmd),
         Cmd::Booru { cmd } => commands::booru::run(&paths, &config, cmd),
         Cmd::Info => commands::info::run(&paths, &config),

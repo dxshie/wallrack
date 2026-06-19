@@ -227,9 +227,12 @@ impl DownloadProgress {
         };
         let expire_ms = if done { "3000" } else { "0" };
 
+        let icon = crate::paths::icon_path();
         let mut cmd = Command::new("notify-send");
         cmd.arg("--print-id")
             .arg(format!("--expire-time={expire_ms}"))
+            .arg("-i")
+            .arg(&icon)
             .arg("Wallrack booru")
             .arg(&body);
         if let Some(ref id) = self.notif_id {

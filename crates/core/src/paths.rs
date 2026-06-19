@@ -83,10 +83,6 @@ impl Paths {
         self.cache_root.join("daemon.pid")
     }
 
-    pub fn we_monitor_state_file(&self) -> PathBuf {
-        self.cache_root.join("we").join("monitor-state.json")
-    }
-
     pub fn ensure_cache(&self) -> Result<()> {
         fs::create_dir_all(&self.cache_root)
             .with_context(|| format!("create cache dir {}", self.cache_root.display()))?;
@@ -106,6 +102,23 @@ impl Paths {
             .with_context(|| format!("create config dir {}", self.config_root.display()))?;
         Ok(())
     }
+}
+
+/// Wallrack's user-data directory (`$XDG_DATA_HOME/wallrack`, default
+/// `~/.local/share/wallrack`). Distinct from the cache (regenerable) and
+/// config (user-edited) roots — this is where static, user-installed assets
+/// like the notification logo live.
+pub fn data_dir() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("wallrack")
+}
+
+/// Canonical path to the notification icon. The file is not shipped — drop a
+/// `wallrack.png` here and notify-send will pick it up; if missing, the
+/// notification just renders without an icon.
+pub fn icon_path() -> PathBuf {
+    data_dir().join("wallrack.png")
 }
 
 /// Expand a leading `~/` to the user's home directory.

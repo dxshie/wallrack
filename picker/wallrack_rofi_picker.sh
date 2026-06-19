@@ -39,7 +39,8 @@
 
 set -o pipefail
 
-NOTIFY_OPTIONS=(-i "$DOTFILES/logos/we.png" "Wallrack")
+WALLRACK_ICON="${WALLRACK_NOTIFY_ICON:-${XDG_DATA_HOME:-$HOME/.local/share}/wallrack/wallrack.png}"
+NOTIFY_OPTIONS=(-i "$WALLRACK_ICON" "Wallrack")
 
 # Rofi appends the highlighted entry on every re-invocation; we just want
 # the last positional arg (the highlighted row's display text). The rating
@@ -660,16 +661,17 @@ case "$ROFI_RETV" in
     exit 0
     ;;
   19)
-    # kb-custom-10 (Alt+0): rebuild index for current integration. For booru
-    # this just re-runs the cached search blocking — there's no on-disk
+    # kb-custom-10 (Alt+0): rebuild index for current integration, then re-render
+    # the picker so the user sees fresh results without having to close + re-open
+    # rofi. For booru this just re-runs the cached search — there's no on-disk
     # source to walk.
     if [[ "$picker_mode" == "booru" ]]; then
       booru_run_search
       exit 0
     fi
     wallrack state unset drill_path >/dev/null
-    start_refresh_background
-    notify-send "${NOTIFY_OPTIONS[@]}" "Refreshing $picker_mode index in the background. Re-open the picker once done."
+    notify-send "${NOTIFY_OPTIONS[@]}" "Refreshing $picker_mode index…"
+    wallrack index --integration="$picker_mode" >/dev/null 2>&1 || true
     wallrack view
     exit 0
     ;;

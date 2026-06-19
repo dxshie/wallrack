@@ -151,6 +151,14 @@ pub(super) enum Cmd {
         /// Entry id — image path or WE folder path.
         target: String,
     },
+    /// Inspect or replay the per-monitor "currently applied" state. The state
+    /// tracks which integration owns which monitor; `restore` re-applies
+    /// everything (batching WE into a single process) so you can rehydrate
+    /// the desktop from a WM/DE startup hook.
+    Applied {
+        #[command(subcommand)]
+        cmd: AppliedCmd,
+    },
     /// Daemon control.
     Daemon {
         #[command(subcommand)]
@@ -323,6 +331,29 @@ pub(super) enum RatingCmd {
         integration: IntegrationArg,
         #[arg(long)]
         id: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub(super) enum AppliedCmd {
+    /// Print the per-monitor applied state. Default output is TSV
+    /// (`<monitor>\t<integration>\t<target>`); pass `--json` for an array.
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Re-apply each monitor's tracked wallpaper. WE entries collapse to a
+    /// single `linux-wallpaperengine` process. Image apply hooks are skipped
+    /// by default — pass `--with-hooks` to run them per monitor (matugen et
+    /// al. otherwise fire N times in a row at startup).
+    Restore {
+        #[arg(long)]
+        with_hooks: bool,
+    },
+    /// Drop the tracked state. Without `--monitor`, clears every monitor.
+    Clear {
+        #[arg(long)]
+        monitor: Option<String>,
     },
 }
 

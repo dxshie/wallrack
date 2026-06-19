@@ -10,8 +10,8 @@ use serde::Deserialize;
 use sled::{Db, IVec};
 
 use super::{
-    TREE_FAVORITES, TREE_RATING_OVERRIDES, TREE_STATE, TREE_TAG_CATALOG, TREE_TAG_OVERRIDES,
-    composite_key, write_json,
+    TREE_APPLIED, TREE_FAVORITES, TREE_RATING_OVERRIDES, TREE_STATE, TREE_TAG_CATALOG,
+    TREE_TAG_OVERRIDES, composite_key, write_json,
 };
 
 const SENTINEL: &str = "__migrated_from_json";
@@ -41,6 +41,11 @@ pub fn run(cache_root: &Path, db: &Db) -> Result<()> {
         cache_root.join("state.json").as_path(),
         db.open_tree(TREE_STATE)?,
         import_state,
+    )?;
+    migrate_one(
+        cache_root.join("we").join("monitor-state.json").as_path(),
+        db.open_tree(TREE_APPLIED)?,
+        import_we_monitor_state,
     )?;
     Ok(())
 }
@@ -136,6 +141,22 @@ fn import_state(tree: &sled::Tree, raw: &str) -> Result<()> {
     let parsed: BTreeMap<String, String> = serde_json::from_str(raw)?;
     for (k, v) in parsed {
         tree.insert(k.as_bytes(), v.as_bytes())?;
+    }
+    Ok(())
+}
+
+/// Legacy WE-only `we/monitor-state.json` was `{ "<monitor>": "<workshop_id>" }`.
+/// The new `applied` tree generalizes that: every integration writes its
+/// (monitor → target) here, so the schema gains an `integration` discriminator.
+/// Pre-existing entries all came from the WE integration.
+fn import_we_monitor_state(tree: &sled::Tree, raw: &str) -> Result<()> {
+    let parsed: BTreeMap<String, String> = serde_json::from_str(raw)?;
+    for (monitor, workshop_id) in parsed {
+        let body = serde_json::json!({
+            "integration": "we",
+            "target": workshop_id,
+        });
+        write_json(tree, monitor.as_bytes(), &body)?;
     }
     Ok(())
 }

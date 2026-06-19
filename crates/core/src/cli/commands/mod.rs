@@ -1,3 +1,4 @@
+pub(super) mod applied;
 pub(super) mod apply;
 pub(super) mod booru;
 pub(super) mod daemon;

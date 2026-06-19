@@ -66,7 +66,7 @@ impl Integration for WallpaperIntegration {
         Ok(index)
     }
 
-    fn apply(&self, entry: &Entry, monitor: &str, _paths: &Paths, config: &Config) -> Result<()> {
+    fn apply(&self, entry: &Entry, monitor: &str, paths: &Paths, config: &Config) -> Result<()> {
         if monitor.is_empty() {
             return Err(anyhow!("apply: no monitor given"));
         }
@@ -74,6 +74,10 @@ impl Integration for WallpaperIntegration {
         if !img.exists() {
             return Err(anyhow!("image does not exist: {}", img.display()));
         }
+        // If this monitor was previously driven by linux-wallpaperengine, drop
+        // it from that process first — otherwise the live overlay sits on top
+        // of whatever awww/swww renders below.
+        crate::integrations::wallpaper_engine::release_monitor(monitor, paths, config)?;
         let img_str = img.to_string_lossy();
         backend::run_apply(
             &self.merged_backend(config),

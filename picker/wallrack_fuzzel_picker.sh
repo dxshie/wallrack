@@ -18,7 +18,7 @@
 
 set -o pipefail
 
-NOTIFY_OPTIONS=(-i "${WALLRACK_NOTIFY_ICON:-dialog-information}" "Wallrack")
+NOTIFY_OPTIONS=(-i "${WALLRACK_NOTIFY_ICON:-${XDG_DATA_HOME:-$HOME/.local/share}/wallrack/wallrack.png}" "Wallrack")
 
 FUZZEL_BIN="${FUZZEL_BIN:-fuzzel}"
 # --dmenu  : read items from stdin

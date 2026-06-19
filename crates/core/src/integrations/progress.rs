@@ -93,9 +93,12 @@ impl Progress {
         let expire_ms = if done { "3000" } else { "0" };
 
         let mut notif_id = self.notif_id.lock().unwrap();
+        let icon = crate::paths::icon_path();
         let mut cmd = Command::new("notify-send");
         cmd.arg("--print-id")
             .arg(format!("--expire-time={expire_ms}"))
+            .arg("-i")
+            .arg(&icon)
             .arg("Wallrack")
             .arg(&body);
         if let Some(ref id) = *notif_id {

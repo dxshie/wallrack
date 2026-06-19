@@ -8,6 +8,7 @@
 //! The `wallrack` binary is a thin wrapper that initializes logging and calls
 //! [`cli::run`].
 
+pub mod applied;
 pub mod cli;
 pub mod config;
 pub mod daemon;

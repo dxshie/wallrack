@@ -179,11 +179,12 @@ fn path_under(path: &Path, root: &Path) -> bool {
 // Best-effort desktop notification on re-index trigger. Spawned and forgotten;
 // missing notify-send (headless box, no notification daemon) is silently ignored.
 fn notify_processing(name: &str) {
+    let icon = crate::paths::icon_path();
     let _ = std::process::Command::new("notify-send")
         .arg("-a")
         .arg("wallrack")
         .arg("-i")
-        .arg("image-x-generic")
+        .arg(&icon)
         .arg("Wallrack")
         .arg(format!("New items detected — re-indexing {name}"))
         .stdout(std::process::Stdio::null())

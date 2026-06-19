@@ -13,7 +13,7 @@
 
         wallrack = pkgs.rustPlatform.buildRustPackage {
           pname = "wallrack";
-          version = "0.3.0";
+          version = "0.3.1";
 
           src = pkgs.lib.cleanSourceWith {
             src = ./.;

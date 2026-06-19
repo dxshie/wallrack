@@ -14,7 +14,10 @@
 //! - `rating_overrides`  — key `<integration>\0<id>`, value: rating string
 //! - `state`             — key picker-state key, value: state string
 
+use std::io;
 use std::path::Path;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -28,6 +31,7 @@ pub const TREE_TAG_OVERRIDES: &str = "tag_overrides";
 pub const TREE_TAG_CATALOG: &str = "tag_catalog";
 pub const TREE_RATING_OVERRIDES: &str = "rating_overrides";
 pub const TREE_STATE: &str = "state";
+pub const TREE_APPLIED: &str = "applied";
 
 /// Composite key separator. NUL keeps the two halves unambiguous since
 /// neither integration keys nor entry ids contain NUL.
@@ -52,14 +56,37 @@ pub fn split_composite(key: &[u8]) -> Option<(&str, &str)> {
 /// Open the sled database at `cache_root/db` and run the one-shot migration
 /// from any legacy JSON files still on disk. Idempotent — running it on an
 /// already-migrated cache is a no-op.
+///
+/// Sled grabs an exclusive flock for the lifetime of the process, so two
+/// `wallrack` invocations running at once (e.g. the rofi script firing
+/// `wallrack view` while a background `wallrack index` is still running)
+/// would otherwise fail instantly with `WouldBlock`. Retry briefly so they
+/// serialize instead.
 pub fn open(cache_root: &Path) -> Result<Db> {
     let db_path = cache_root.join("db");
-    let db = sled::Config::new()
+    let cfg = sled::Config::new()
         .path(&db_path)
         // Reasonable defaults: ~4MB cache is plenty for our key space.
-        .cache_capacity(4 * 1024 * 1024)
-        .open()
-        .with_context(|| format!("open sled db at {}", db_path.display()))?;
+        .cache_capacity(4 * 1024 * 1024);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut backoff = Duration::from_millis(50);
+    let db = loop {
+        match cfg.open() {
+            Ok(db) => break db,
+            Err(sled::Error::Io(ref e))
+                if e.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
+            {
+                thread::sleep(backoff);
+                backoff = (backoff * 2).min(Duration::from_millis(500));
+                continue;
+            }
+            Err(e) => {
+                return Err(anyhow::Error::new(e))
+                    .with_context(|| format!("open sled db at {}", db_path.display()));
+            }
+        }
+    };
     migrate::run(cache_root, &db)?;
     Ok(db)
 }

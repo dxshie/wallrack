@@ -26,7 +26,7 @@
 
 set -o pipefail
 
-NOTIFY_OPTIONS=(-i "${WALLRACK_NOTIFY_ICON:-dialog-information}" "Wallrack")
+NOTIFY_OPTIONS=(-i "${WALLRACK_NOTIFY_ICON:-${XDG_DATA_HOME:-$HOME/.local/share}/wallrack/wallrack.png}" "Wallrack")
 
 WOFI_BIN="${WOFI_BIN:-wofi}"
 WOFI_BASE_ARGS=(--dmenu --allow-images --width 900 --height 700 -D dmenu-print_line_num=true)

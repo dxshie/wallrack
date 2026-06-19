@@ -5,9 +5,10 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 
+use crate::applied::Applied;
 use crate::config::Config;
 use crate::entry::Index;
-use crate::integrations::{self, wallpaper_engine};
+use crate::integrations;
 use crate::output::{Action, Format, Row, ViewHints, write_rows};
 use crate::paths::Paths;
 
@@ -88,12 +89,17 @@ pub(in crate::cli) fn run(
     Ok(ExitCode::SUCCESS)
 }
 
-/// Per-monitor current-wallpaper thumbnails. WE tracks its own state
-/// (linux-wallpaperengine has no introspection), the other integrations rely
-/// on the backend's optional `current_image_cmd`.
+/// Per-monitor current-wallpaper thumbnails. WE has no compositor-side
+/// introspection, so we resolve its thumbs from the `applied` tree by
+/// reverse-looking-up `(monitor → workshop_id)` against the WE index. The
+/// other integrations rely on the backend's optional `current_image_cmd`.
 fn current_thumbs(integration: &str, paths: &Paths, config: &Config) -> HashMap<String, PathBuf> {
     if integration == "we" {
-        let state = wallpaper_engine::read_monitor_state(paths);
+        let applied = match Applied::open(paths.store()) {
+            Ok(a) => a,
+            Err(_) => return HashMap::new(),
+        };
+        let state = applied.by_integration("we");
         if state.is_empty() {
             return HashMap::new();
         }
