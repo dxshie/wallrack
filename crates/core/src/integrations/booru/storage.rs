@@ -220,12 +220,10 @@ pub(super) fn filename_from_url(url: &str, fallback_stem: &str) -> String {
 
 fn persist_last_search(paths: &Paths, site_key: &str, tags: &str, page: u32) -> Result<()> {
     use crate::state::{State, keys};
-    let state_path = paths.state_file();
-    let mut state = State::load(&state_path)?;
-    state.set(keys::BOORU_SITE, site_key);
-    state.set(keys::BOORU_QUERY, tags);
-    state.set(keys::BOORU_PAGE, page.to_string());
-    state.save(&state_path)?;
+    let state = State::open(paths.store())?;
+    state.set(keys::BOORU_SITE, site_key)?;
+    state.set(keys::BOORU_QUERY, tags)?;
+    state.set(keys::BOORU_PAGE, page.to_string())?;
     Ok(())
 }
 

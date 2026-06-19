@@ -18,5 +18,6 @@ pub mod output;
 pub mod paths;
 pub mod rating;
 pub mod state;
+pub mod store;
 pub mod tags;
 pub mod thumbnail;

@@ -28,3 +28,4 @@ sha1 = { workspace = true }
 hex = { workspace = true }
 log = { workspace = true }
 reqwest = { workspace = true }
+sled = { workspace = true }

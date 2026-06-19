@@ -14,32 +14,26 @@ use super::super::format_list::write_string_list;
 use super::super::state_helpers::resolve_integration;
 
 pub(in crate::cli) fn run(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
-    let tags_path = paths.tags_file();
-    let catalog_path = paths.tag_catalog_file();
-    let mut overrides = crate::tags::TagOverrides::load(&tags_path)?;
+    let overrides = crate::tags::TagOverrides::open(paths.store())?;
+    let catalog = crate::tags::TagCatalog::open(paths.store())?;
     match cmd {
         TagCmd::Add {
             integration,
             id,
             tag,
         } => {
-            overrides.add(integration.as_str(), &id, &tag);
-            overrides.save(&tags_path)?;
+            overrides.add(integration.as_str(), &id, &tag)?;
             // Newly-added tags should be immediately suggestable in the
             // picker, so reflect them in the catalog right away rather than
             // waiting for the next re-index.
-            let mut catalog = crate::tags::TagCatalog::load(&catalog_path)?;
-            if catalog.add(integration.as_str(), &tag) {
-                catalog.save(&catalog_path)?;
-            }
+            catalog.add(integration.as_str(), &tag);
         }
         TagCmd::Remove {
             integration,
             id,
             tag,
         } => {
-            overrides.remove(integration.as_str(), &id, &tag);
-            overrides.save(&tags_path)?;
+            overrides.remove(integration.as_str(), &id, &tag)?;
         }
         TagCmd::Set {
             integration,
@@ -63,8 +57,7 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
                         .map(|e| e.tags().to_vec())
                         .unwrap_or_default();
                     let prior = overrides
-                        .get(integration.as_str(), &id)
-                        .cloned()
+                        .get(integration.as_str(), &id)?
                         .unwrap_or_default();
                     // native = (effective ∪ prior.removed) \ prior.added
                     let mut native: std::collections::BTreeSet<String> =
@@ -77,15 +70,11 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
                 }
                 Err(_) => Vec::new(),
             };
-            overrides.set(integration.as_str(), &id, &tags, &native);
-            overrides.save(&tags_path)?;
-            let mut catalog = crate::tags::TagCatalog::load(&catalog_path)?;
+            overrides.set(integration.as_str(), &id, &tags, &native)?;
             catalog.extend(integration.as_str(), tags.iter().cloned());
-            catalog.save(&catalog_path)?;
         }
         TagCmd::Clear { integration, id } => {
-            overrides.clear(integration.as_str(), &id);
-            overrides.save(&tags_path)?;
+            overrides.clear(integration.as_str(), &id)?;
         }
         TagCmd::Show { integration, id } => {
             let integ = integrations::by_name(integration.as_str())?;
@@ -103,7 +92,6 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
             format,
         } => {
             let integration = resolve_integration(paths, integration.map(IntegrationArg::as_str))?;
-            let catalog = crate::tags::TagCatalog::load(&catalog_path)?;
             let tags = catalog.list(&integration);
             let stdout = io::stdout().lock();
             let mut out = std::io::BufWriter::new(stdout);
@@ -112,34 +100,24 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
             out.flush()?;
         }
         TagCmd::Create { integration, tag } => {
-            let mut catalog = crate::tags::TagCatalog::load(&catalog_path)?;
-            if catalog.add(integration.as_str(), &tag) {
-                catalog.save(&catalog_path)?;
-            }
+            catalog.add(integration.as_str(), &tag);
         }
         TagCmd::Delete {
             integration,
             cascade,
             tag,
         } => {
-            let mut catalog = crate::tags::TagCatalog::load(&catalog_path)?;
             catalog.remove(integration.as_str(), &tag);
-            catalog.save(&catalog_path)?;
             if cascade {
                 // Hide the tag on every entry that currently carries it —
                 // including native tags from project.json — by writing a
                 // `removed` override per affected entry.
                 let integ = integrations::by_name(integration.as_str())?;
                 if let Ok(idx) = integ.read_index(paths) {
-                    let mut touched = false;
                     for entry in &idx.entries {
                         if entry.tags().iter().any(|t| t == &tag) {
-                            overrides.remove(integration.as_str(), entry.id(), &tag);
-                            touched = true;
+                            overrides.remove(integration.as_str(), entry.id(), &tag)?;
                         }
-                    }
-                    if touched {
-                        overrides.save(&tags_path)?;
                     }
                 }
             }

@@ -8,20 +8,17 @@ use crate::paths::Paths;
 use super::super::args::RatingCmd;
 
 pub(in crate::cli) fn run(paths: &Paths, cmd: RatingCmd) -> Result<ExitCode> {
-    let path = paths.rating_overrides_file();
-    let mut overrides = crate::rating::RatingOverrides::load(&path)?;
+    let overrides = crate::rating::RatingOverrides::open(paths.store())?;
     match cmd {
         RatingCmd::Set {
             integration,
             id,
             rating,
         } => {
-            overrides.set(integration.as_str(), &id, rating);
-            overrides.save(&path)?;
+            overrides.set(integration.as_str(), &id, rating)?;
         }
         RatingCmd::Clear { integration, id } => {
-            overrides.clear(integration.as_str(), &id);
-            overrides.save(&path)?;
+            overrides.clear(integration.as_str(), &id)?;
         }
         RatingCmd::Show { integration, id } => {
             let integ = integrations::by_name(integration.as_str())?;

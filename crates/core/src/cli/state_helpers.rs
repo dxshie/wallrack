@@ -13,6 +13,6 @@ pub(super) fn resolve_integration(paths: &Paths, override_: Option<&str>) -> Res
     if let Some(s) = override_ {
         return Ok(s.to_string());
     }
-    let state = State::load(&paths.state_file())?;
+    let state = State::open(paths.store())?;
     Ok(state.picker_mode().as_str().to_string())
 }

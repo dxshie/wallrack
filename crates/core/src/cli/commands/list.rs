@@ -27,7 +27,7 @@ pub(in crate::cli) struct ListArgs {
 pub(in crate::cli) fn run(paths: &Paths, args: ListArgs) -> Result<ExitCode> {
     let (integration, favorites_only, tag, rating, folder, group) = if args.use_state {
         // Pull filter context from persisted picker state.
-        let state = State::load(&paths.state_file())?;
+        let state = State::open(paths.store())?;
         let drill = state.drill_path().to_string();
         let tag_filter = state.tag_filter().to_string();
         let group = drill.is_empty(); // group at top level, flat inside a folder
@@ -52,7 +52,7 @@ pub(in crate::cli) fn run(paths: &Paths, args: ListArgs) -> Result<ExitCode> {
 
     let integ = integrations::by_name(&integration)?;
     let index = integ.read_index(paths)?;
-    let favorites = Favorites::load(&paths.favorites_file())?;
+    let favorites = Favorites::open(paths.store())?;
 
     let filtered = filter_entries(
         &index,

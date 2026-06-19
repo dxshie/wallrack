@@ -3,9 +3,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 
+use crate::store;
+
 pub struct Paths {
     cache_root: PathBuf,
     config_root: PathBuf,
+    store: sled::Db,
 }
 
 impl Paths {
@@ -16,7 +19,20 @@ impl Paths {
         let config_root = dirs::config_dir()
             .ok_or_else(|| anyhow!("no XDG config dir"))?
             .join("wallrack");
-        Ok(Self { cache_root, config_root })
+        // Sled wants the cache root to exist before we open the DB inside it.
+        fs::create_dir_all(&cache_root)
+            .with_context(|| format!("create cache dir {}", cache_root.display()))?;
+        let store = store::open(&cache_root)?;
+        Ok(Self {
+            cache_root,
+            config_root,
+            store,
+        })
+    }
+
+    /// Sled handle — opens the trees backing favorites, tags, ratings, state.
+    pub fn store(&self) -> &sled::Db {
+        &self.store
     }
 
     pub fn config_file(&self) -> PathBuf {

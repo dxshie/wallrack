@@ -2,19 +2,17 @@
 //!
 //! Native ratings come from WE `project.json` (`contentrating: "Mature" |
 //! "Questionable" | "Everyone"`); plain wallpapers carry no native rating.
-//! `RatingOverrides` lets the user assign or clear a rating on any entry
-//! (mirroring [`TagOverrides`][crate::tags::TagOverrides]), and the
-//! `Rating::All` variant doubles as "no filter / unrated" in the picker.
-
-use std::collections::BTreeMap;
-use std::path::Path;
+//! `RatingOverrides` lets the user assign or clear a rating on any entry,
+//! and the `Rating::All` variant doubles as "no filter / unrated" in the
+//! picker.
 
 use anyhow::{Context, Result};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
+use sled::{Db, Tree};
 
 use crate::entry::Index;
-use crate::paths::atomic_write;
+use crate::store::{TREE_RATING_OVERRIDES, composite_key};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 pub enum Rating {
@@ -65,67 +63,52 @@ impl Rating {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct RatingOverrides {
-    #[serde(flatten)]
-    by_integration: BTreeMap<String, BTreeMap<String, String>>,
+    tree: Tree,
 }
 
 impl RatingOverrides {
-    pub fn load(path: &Path) -> Result<Self> {
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("read rating overrides {}", path.display()))?;
-        if raw.trim().is_empty() {
-            return Ok(Self::default());
-        }
-        let parsed: Self = serde_json::from_str(&raw)
-            .with_context(|| format!("parse rating overrides {}", path.display()))?;
-        Ok(parsed)
-    }
-
-    pub fn save(&self, path: &Path) -> Result<()> {
-        let body = serde_json::to_vec_pretty(self).context("serialize rating overrides")?;
-        atomic_write(path, &body)
+    pub fn open(db: &Db) -> Result<Self> {
+        let tree = db
+            .open_tree(TREE_RATING_OVERRIDES)
+            .with_context(|| format!("open sled tree `{TREE_RATING_OVERRIDES}`"))?;
+        Ok(Self { tree })
     }
 
     /// Pin `id`'s effective rating. `Rating::All` records an explicit
     /// "no rating" — distinct from `clear`, which drops the override
     /// entirely and lets the native rating shine through.
-    pub fn set(&mut self, integration: &str, id: &str, rating: Rating) {
+    pub fn set(&self, integration: &str, id: &str, rating: Rating) -> Result<()> {
         let stored = match rating {
-            Rating::All => String::new(),
-            r => r.as_str().to_string(),
+            Rating::All => "",
+            r => r.as_str(),
         };
-        self.by_integration
-            .entry(integration.to_string())
-            .or_default()
-            .insert(id.to_string(), stored);
+        let key = composite_key(integration, id);
+        self.tree.insert(&key, stored.as_bytes())?;
+        self.tree.flush()?;
+        Ok(())
     }
 
-    pub fn clear(&mut self, integration: &str, id: &str) -> bool {
-        let removed = self
-            .by_integration
-            .get_mut(integration)
-            .map(|m| m.remove(id).is_some())
-            .unwrap_or(false);
-        if self.by_integration.get(integration).map(|m| m.is_empty()).unwrap_or(false) {
-            self.by_integration.remove(integration);
-        }
-        removed
+    pub fn clear(&self, integration: &str, id: &str) -> Result<bool> {
+        let key = composite_key(integration, id);
+        let removed = self.tree.remove(&key)?.is_some();
+        self.tree.flush()?;
+        Ok(removed)
     }
 
-    pub fn get(&self, integration: &str, id: &str) -> Option<&str> {
-        self.by_integration.get(integration)?.get(id).map(|s| s.as_str())
+    pub fn get(&self, integration: &str, id: &str) -> Option<String> {
+        let key = composite_key(integration, id);
+        let ivec = self.tree.get(&key).ok().flatten()?;
+        std::str::from_utf8(&ivec).ok().map(|s| s.to_string())
     }
 
     pub fn apply_to(&self, idx: &mut Index) {
-        let Some(by_id) = self.by_integration.get(&idx.integration) else { return };
         for entry in &mut idx.entries {
-            if let Some(rating) = by_id.get(entry.id()) {
-                entry.set_rating(rating.clone());
+            let key = composite_key(&idx.integration, entry.id());
+            if let Ok(Some(bytes)) = self.tree.get(&key) {
+                if let Ok(s) = std::str::from_utf8(&bytes) {
+                    entry.set_rating(s.to_string());
+                }
             }
         }
     }

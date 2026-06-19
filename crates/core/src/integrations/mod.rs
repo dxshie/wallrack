@@ -75,10 +75,10 @@ pub trait Integration {
                 self.name(), e, self.name(),
             )
         })?;
-        if let Ok(overrides) = crate::tags::TagOverrides::load(&paths.tags_file()) {
+        if let Ok(overrides) = crate::tags::TagOverrides::open(paths.store()) {
             overrides.apply_to(&mut idx);
         }
-        if let Ok(ratings) = crate::rating::RatingOverrides::load(&paths.rating_overrides_file()) {
+        if let Ok(ratings) = crate::rating::RatingOverrides::open(paths.store()) {
             ratings.apply_to(&mut idx);
         }
         Ok(idx)

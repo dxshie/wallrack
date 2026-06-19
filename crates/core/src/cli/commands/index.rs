@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 use std::time::Instant;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::config::Config;
 use crate::integrations::{self, Integration, SourceKind};
@@ -28,9 +28,7 @@ pub(in crate::cli) fn run(paths: &Paths, config: &Config, integration: &str) -> 
     let multi = targets.len() > 1;
     let mut total = 0usize;
 
-    let catalog_path = paths.tag_catalog_file();
-    let mut catalog = crate::tags::TagCatalog::load(&catalog_path)?;
-    let mut catalog_dirty = false;
+    let catalog = crate::tags::TagCatalog::open(paths.store())?;
 
     for integ in &targets {
         if in_rofi {
@@ -49,16 +47,12 @@ pub(in crate::cli) fn run(paths: &Paths, config: &Config, integration: &str) -> 
                     elapsed,
                 );
                 // Pull native tags into the catalog so the picker can suggest
-                // them without re-reading the whole index. Manually-created
-                // catalog entries persist because we union, never replace.
-                let before = catalog.list(integ.name()).len();
+                // them without re-reading the whole index. Each add() persists
+                // immediately — no separate save() step.
                 catalog.extend(
                     integ.name(),
                     idx.entries.iter().flat_map(|e| e.tags().iter().cloned()),
                 );
-                if catalog.list(integ.name()).len() != before {
-                    catalog_dirty = true;
-                }
                 if in_rofi && multi {
                     notify_send(
                         &format!("{}: {} entries ({:.1}s)", integ.name(), n, elapsed),
@@ -76,12 +70,6 @@ pub(in crate::cli) fn run(paths: &Paths, config: &Config, integration: &str) -> 
                 }
             }
         }
-    }
-
-    if catalog_dirty {
-        catalog
-            .save(&catalog_path)
-            .with_context(|| format!("save tag catalog {}", catalog_path.display()))?;
     }
 
     if in_rofi {

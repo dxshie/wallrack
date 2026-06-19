@@ -19,13 +19,14 @@ use super::super::render::{
 use super::tags;
 
 pub(in crate::cli) fn run(paths: &Paths, format: Format) -> Result<ExitCode> {
-    let state = State::load(&paths.state_file())?;
+    let state = State::open(paths.store())?;
     let integration = state.picker_mode().as_str().to_string();
+    let tag_edit_target = state.tag_edit_target();
 
     match state.picker_view() {
-        PickerView::TagAdd => cmd_add_tag_view(paths, &integration, state.tag_edit_target(), format),
+        PickerView::TagAdd => cmd_add_tag_view(paths, &integration, &tag_edit_target, format),
         PickerView::TagEditor => {
-            cmd_tag_editor_view(paths, &integration, state.tag_edit_target(), format)
+            cmd_tag_editor_view(paths, &integration, &tag_edit_target, format)
         }
         PickerView::TagSelect => tags::run(paths, Some(&integration), format),
         PickerView::Booru => cmd_booru_view(paths, &state, format),
@@ -41,14 +42,14 @@ fn default_view(
 ) -> Result<ExitCode> {
     let integ = integrations::by_name(integration)?;
     let index = integ.read_index(paths)?;
-    let favorites = Favorites::load(&paths.favorites_file())?;
+    let favorites = Favorites::open(paths.store())?;
 
     let favorites_only = state.view_mode().favorites_only();
     let tag_filter = state.tag_filter();
-    let tag = (!tag_filter.is_empty()).then_some(tag_filter);
+    let tag = (!tag_filter.is_empty()).then_some(tag_filter.as_str());
     let rating_opt = state.rating_filter().as_filter();
     let drill = state.drill_path();
-    let folder_opt = (!drill.is_empty()).then_some(drill);
+    let folder_opt = (!drill.is_empty()).then_some(drill.as_str());
 
     let filtered = filter_entries(
         &index,
@@ -118,8 +119,7 @@ fn cmd_booru_view(paths: &Paths, state: &State, format: Format) -> Result<ExitCo
     let cfg = Config::load(paths)?;
     let site = state
         .booru_site()
-        .map(str::to_string)
-        .unwrap_or(cfg.booru.default_site.clone());
+        .unwrap_or_else(|| cfg.booru.default_site.clone());
     let query = state.booru_query().to_string();
     let page = state.booru_page();
 
@@ -278,7 +278,7 @@ fn cmd_add_tag_view(
     target: &str,
     format: Format,
 ) -> Result<ExitCode> {
-    let catalog = crate::tags::TagCatalog::load(&paths.tag_catalog_file())?;
+    let catalog = crate::tags::TagCatalog::open(paths.store())?;
     let tags = catalog.list(integration);
     let label = target.rsplit('/').next().unwrap_or(target).to_string();
 

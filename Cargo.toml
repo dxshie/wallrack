@@ -35,6 +35,10 @@ env_logger = { version = "0.11", default-features = false, features = ["auto-col
 # Blocking HTTP for the booru integration. rustls-tls avoids dragging OpenSSL
 # into the build; json enables the serde_json integration on Response.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json", "gzip"] }
+# Embedded key-value store. Replaces the per-collection JSON files (favorites,
+# tag overrides, tag catalog, rating overrides, picker state) — indexes stay
+# JSON since they're rebuilt by `wallrack index` anyway.
+sled = "0.34"
 
 [profile.release]
 lto = "thin"

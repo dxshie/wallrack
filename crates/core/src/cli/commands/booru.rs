@@ -81,7 +81,7 @@ fn run_search(
         &download_dir,
     )?;
 
-    let favorites = Favorites::load(&paths.favorites_file())?;
+    let favorites = Favorites::open(paths.store())?;
     let stdout = io::stdout().lock();
     let mut out = BufWriter::new(stdout);
     let entries: Vec<&Entry> = idx.entries.iter().collect();
@@ -131,7 +131,7 @@ fn run_download(
 }
 
 fn run_current_site(paths: &Paths, config: &Config) -> Result<ExitCode> {
-    let st = State::load(&paths.state_file())?;
+    let st = State::open(paths.store())?;
     let resolved = if let Some(s) = st.booru_site() {
         s.to_string()
     } else if !config.booru.default_site.is_empty() {
