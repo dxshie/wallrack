@@ -124,8 +124,8 @@ impl RatingOverrides {
     pub fn apply_to(&self, idx: &mut Index) {
         let Some(by_id) = self.by_integration.get(&idx.integration) else { return };
         for entry in &mut idx.entries {
-            if let Some(rating) = by_id.get(&entry.id) {
-                entry.rating = rating.clone();
+            if let Some(rating) = by_id.get(entry.id()) {
+                entry.set_rating(rating.clone());
             }
         }
     }

@@ -109,7 +109,10 @@ fn current_thumbs(
         let by_workshop: HashMap<String, PathBuf> = idx
             .entries
             .into_iter()
-            .filter_map(|e| e.workshop_id.map(|w| (w, e.thumb)))
+            .filter_map(|e| match e {
+                crate::entry::Entry::Project { workshop_id, thumb, .. } => Some((workshop_id, thumb)),
+                _ => None,
+            })
             .collect();
         return state
             .into_iter()

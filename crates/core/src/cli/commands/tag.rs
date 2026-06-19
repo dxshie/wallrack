@@ -59,8 +59,8 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
                     let effective = idx
                         .entries
                         .iter()
-                        .find(|e| e.id == id)
-                        .map(|e| e.tags.clone())
+                        .find(|e| e.id() == id)
+                        .map(|e| e.tags().to_vec())
                         .unwrap_or_default();
                     let prior = overrides
                         .get(integration.as_str(), &id)
@@ -90,8 +90,8 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
         TagCmd::Show { integration, id } => {
             let integ = integrations::by_name(integration.as_str())?;
             let idx = integ.read_index(paths)?;
-            if let Some(entry) = idx.entries.iter().find(|e| e.id == id) {
-                for t in &entry.tags {
+            if let Some(entry) = idx.entries.iter().find(|e| e.id() == id) {
+                for t in entry.tags() {
                     println!("{t}");
                 }
             } else {
@@ -133,8 +133,8 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
                 if let Ok(idx) = integ.read_index(paths) {
                     let mut touched = false;
                     for entry in &idx.entries {
-                        if entry.tags.iter().any(|t| t == &tag) {
-                            overrides.remove(integration.as_str(), &entry.id, &tag);
+                        if entry.tags().iter().any(|t| t == &tag) {
+                            overrides.remove(integration.as_str(), entry.id(), &tag);
                             touched = true;
                         }
                     }

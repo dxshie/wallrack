@@ -21,33 +21,48 @@ pub(in crate::cli) fn run(
     let integration = resolve_integration(paths, integration)?;
     let integ = integrations::by_name(&integration)?;
     let index = integ.read_index(paths)?;
-    let entry = match index.entries.iter().find(|e| e.id == target).cloned() {
+    let entry = match index.entries.iter().find(|e| e.id() == target).cloned() {
         Some(e) => e,
         None => {
             // For image integrations, allow applying an extant file even when
             // it isn't in the index yet. This is how the booru flow gets a
             // freshly-downloaded image onto a monitor without forcing a
             // re-index between download and apply.
-            let is_image = matches!(integration.as_str(), "wallpaper" | "we_image");
             let p = PathBuf::from(target);
-            if is_image && p.is_file() {
-                Entry {
-                    integration: integration.clone(),
+            let title = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("image")
+                .to_string();
+            match integration.as_str() {
+                "wallpaper" if p.is_file() => Entry::Image {
                     id: target.to_string(),
-                    title: p
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("image")
-                        .to_string(),
-                    source: p,
+                    title,
+                    source: p.clone(),
                     thumb: PathBuf::new(),
-                    rating: String::new(),
                     tags: Vec::new(),
-                    workshop_id: None,
+                    rating: String::new(),
                     subfolder: String::new(),
-                }
-            } else {
-                return Err(anyhow!("entry not in index: {target}"));
+                    root: p
+                        .parent()
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| PathBuf::from("/")),
+                },
+                "we_image" if p.is_file() => Entry::WeImage {
+                    id: target.to_string(),
+                    title,
+                    source: p.clone(),
+                    thumb: PathBuf::new(),
+                    tags: Vec::new(),
+                    rating: String::new(),
+                    subfolder: String::new(),
+                    workshop_id: String::new(),
+                    project_root: p
+                        .parent()
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| PathBuf::from("/")),
+                },
+                _ => return Err(anyhow!("entry not in index: {target}")),
             }
         }
     };

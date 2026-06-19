@@ -27,9 +27,9 @@ pub(in crate::cli) fn run(
     // without a usable thumb still contribute the tag itself.
     let mut tag_thumb: BTreeMap<&str, Option<&std::path::Path>> = BTreeMap::new();
     for e in &index.entries {
-        let thumb: Option<&std::path::Path> = (!e.thumb.as_os_str().is_empty())
-            .then(|| e.thumb.as_path());
-        for t in &e.tags {
+        let thumb: Option<&std::path::Path> =
+            (!e.thumb().as_os_str().is_empty()).then(|| e.thumb());
+        for t in e.tags() {
             if t.is_empty() {
                 continue;
             }

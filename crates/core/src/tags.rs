@@ -183,15 +183,15 @@ impl TagOverrides {
     pub fn apply_to(&self, idx: &mut Index) {
         let Some(by_id) = self.by_integration.get(&idx.integration) else { return };
         for entry in &mut idx.entries {
-            if let Some(ov) = by_id.get(&entry.id) {
+            if let Some(ov) = by_id.get(entry.id()) {
                 let mut effective: BTreeSet<String> = entry
-                    .tags
+                    .tags()
                     .iter()
                     .filter(|t| !ov.removed.contains(*t))
                     .cloned()
                     .collect();
                 effective.extend(ov.added.iter().cloned());
-                entry.tags = effective.into_iter().collect();
+                entry.set_tags(effective.into_iter().collect());
             }
         }
     }

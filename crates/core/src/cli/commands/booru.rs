@@ -89,9 +89,9 @@ fn run_search(
         .iter()
         .map(|e| Row::Entry {
             entry: e,
-            favorite: favorites.is_favorite(&e.integration, &e.id),
+            favorite: favorites.is_favorite(e.integration(), e.id()),
             label: None,
-            action: Some(Action::BooruSearchHit { id: e.id.clone() }),
+            action: Some(Action::BooruSearchHit { id: e.id().to_string() }),
         })
         .collect();
     let hints = ViewHints {
@@ -126,7 +126,7 @@ fn run_download(
     // print it verbatim so the rofi wrapper can capture
     // `$(wallrack booru download <id>)` and feed it into the wallpaper monitor
     // picker.
-    println!("{}", entry.source.display());
+    println!("{}", entry.source().display());
     Ok(ExitCode::SUCCESS)
 }
 

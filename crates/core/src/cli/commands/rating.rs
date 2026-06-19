@@ -26,8 +26,8 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: RatingCmd) -> Result<ExitCode> {
         RatingCmd::Show { integration, id } => {
             let integ = integrations::by_name(integration.as_str())?;
             let idx = integ.read_index(paths)?;
-            if let Some(entry) = idx.entries.iter().find(|e| e.id == id) {
-                println!("{}", entry.rating);
+            if let Some(entry) = idx.entries.iter().find(|e| e.id() == id) {
+                println!("{}", entry.rating());
             } else {
                 return Err(anyhow!("entry not in index: {id}"));
             }

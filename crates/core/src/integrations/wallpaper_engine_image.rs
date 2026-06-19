@@ -65,7 +65,7 @@ impl Integration for WallpaperEngineImageIntegration {
         if monitor.is_empty() {
             return Err(anyhow!("apply: no monitor given"));
         }
-        let img = &entry.source;
+        let img = entry.source();
         if !img.exists() {
             return Err(anyhow!("image does not exist: {}", img.display()));
         }
@@ -150,15 +150,15 @@ fn build_entry(src: &EntrySource, thumbs_dir: &Path, size: u32) -> Result<Entry>
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    Ok(Entry {
-        integration: NAME.to_string(),
+    Ok(Entry::WeImage {
         id: src.image.to_string_lossy().to_string(),
         title: src.title.clone(),
         source: src.image.clone(),
         thumb,
-        rating: src.rating.clone(),
         tags: src.tags.clone(),
-        workshop_id: Some(src.workshop_id.clone()),
+        rating: src.rating.clone(),
         subfolder,
+        workshop_id: src.workshop_id.clone(),
+        project_root: src.project_root.clone(),
     })
 }

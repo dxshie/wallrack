@@ -100,13 +100,18 @@ pub(crate) fn row_parts(row: &Row<'_>) -> RowParts {
             let star = if *favorite { "\u{2605} " } else { "" };
             let display = match label {
                 Some(custom) => format!("{star}{custom}"),
-                None => format!("{star}{} - {}", entry.title, entry.id),
+                None => format!("{star}{} - {}", entry.title(), entry.id()),
             };
-            let icon = entry.thumb.to_string_lossy().into_owned();
+            let icon = entry.thumb().to_string_lossy().into_owned();
             let payload = action
                 .as_ref()
                 .map(Action::to_legacy_string)
-                .unwrap_or_else(|| Action::ApplyImage { id: entry.id.clone() }.to_legacy_string());
+                .unwrap_or_else(|| {
+                    Action::ApplyImage {
+                        id: entry.id().to_string(),
+                    }
+                    .to_legacy_string()
+                });
             RowParts {
                 display,
                 icon,
@@ -138,22 +143,23 @@ fn write_json<W: Write>(w: &mut W, rows: &[Row<'_>]) -> Result<()> {
                 // Default action mirrors the dmenu default: ApplyImage with
                 // the entry id. JSON consumers get the structured form, plus
                 // the legacy `info` string for backward-compat parsers.
-                let resolved = action
-                    .clone()
-                    .unwrap_or_else(|| Action::ApplyImage { id: entry.id.clone() });
+                let resolved = action.clone().unwrap_or_else(|| Action::ApplyImage {
+                    id: entry.id().to_string(),
+                });
                 json!({
-                    "integration": entry.integration,
-                    "id": entry.id,
-                    "title": label.clone().unwrap_or_else(|| entry.title.clone()),
-                    "source": entry.source,
-                    "thumb": entry.thumb,
-                    "tags": entry.tags,
-                    "rating": entry.rating,
-                    "workshop_id": entry.workshop_id,
-                    "subfolder": entry.subfolder,
+                    "integration": entry.integration(),
+                    "id": entry.id(),
+                    "title": label.clone().unwrap_or_else(|| entry.title().to_string()),
+                    "source": entry.source(),
+                    "thumb": entry.thumb(),
+                    "tags": entry.tags(),
+                    "rating": entry.rating(),
+                    "workshop_id": entry.workshop_id(),
+                    "subfolder": entry.subfolder().unwrap_or(""),
                     "favorite": favorite,
                     "info": resolved.to_legacy_string(),
                     "action": resolved,
+                    "entry": entry,
                 })
             }
             Row::Control { label, action, icon } => json!({

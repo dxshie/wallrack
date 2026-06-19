@@ -77,12 +77,9 @@ impl Integration for WallpaperEngineIntegration {
         if monitor.is_empty() {
             return Err(anyhow!("apply: no monitor given"));
         }
-        let folder = &entry.source;
-        let workshop_id = entry
-            .workshop_id
-            .clone()
-            .or_else(|| folder.file_name().map(|s| s.to_string_lossy().to_string()))
-            .ok_or_else(|| anyhow!("WE entry missing workshop id"))?;
+        let Entry::Project { folder, workshop_id, .. } = entry else {
+            return Err(anyhow!("we apply called with a non-project entry: {}", entry.id()));
+        };
 
         // Replace any running linux-wallpaperengine before relaunching.
         let _ = Command::new("pkill").arg("-f").arg("linux-wallpaperengine").status();
@@ -98,7 +95,7 @@ impl Integration for WallpaperEngineIntegration {
             ],
         )?;
 
-        update_monitor_state(paths, monitor, &workshop_id)?;
+        update_monitor_state(paths, monitor, workshop_id)?;
         Ok(())
     }
 
@@ -161,16 +158,14 @@ fn build_we_entry(dir: &Path, thumbs_dir: &Path, thumb_size: u32) -> Result<Entr
         }
     };
 
-    Ok(Entry {
-        integration: NAME.to_string(),
+    Ok(Entry::Project {
         id: dir.to_string_lossy().to_string(),
         title,
-        source: dir.to_path_buf(),
+        folder: dir.to_path_buf(),
         thumb,
-        rating,
         tags,
-        workshop_id: Some(workshop_id),
-        subfolder: String::new(),
+        rating,
+        workshop_id,
     })
 }
 

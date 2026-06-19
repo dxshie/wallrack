@@ -63,7 +63,7 @@ impl Integration for WallpaperIntegration {
         if monitor.is_empty() {
             return Err(anyhow!("apply: no monitor given"));
         }
-        let img = &entry.source;
+        let img = entry.source();
         if !img.exists() {
             return Err(anyhow!("image does not exist: {}", img.display()));
         }
@@ -141,20 +141,14 @@ fn build_entry(src: &EntrySource, thumbs_dir: &Path, size: u32) -> Result<Entry>
             .to_string()
     };
 
-    // workshop_id is overloaded as a grouping discriminator for plain
-    // wallpapers — using the root dir path keeps two configured dirs that
-    // share a subfolder name from colliding in the picker.
-    let workshop_id = Some(src.root.to_string_lossy().to_string());
-
-    Ok(Entry {
-        integration: NAME.to_string(),
+    Ok(Entry::Image {
         id: src.image.to_string_lossy().to_string(),
         title,
         source: src.image.clone(),
         thumb,
-        rating: String::new(),
         tags: Vec::new(),
-        workshop_id,
+        rating: String::new(),
         subfolder,
+        root: src.root.clone(),
     })
 }

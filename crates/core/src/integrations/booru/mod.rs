@@ -51,7 +51,18 @@ impl Integration for BooruIntegration {
             let raw = std::fs::read_to_string(&file)
                 .with_context(|| format!("read booru index {}", file.display()))?;
             if !raw.trim().is_empty() {
-                return Ok(serde_json::from_str(&raw)?);
+                match serde_json::from_str(&raw) {
+                    Ok(idx) => return Ok(idx),
+                    Err(err) => {
+                        // Most likely a pre-0.3 index in the legacy flat shape.
+                        // Booru indexes are rebuilt by any `booru search`, so
+                        // clobber the file rather than fail the whole index run.
+                        log::warn!(
+                            "booru: stale cached search ({}) — clearing; run `wallrack booru search` to rebuild",
+                            err
+                        );
+                    }
+                }
             }
         }
         let empty = Index { integration: NAME.to_string(), entries: Vec::new() };
@@ -74,11 +85,11 @@ impl Integration for BooruIntegration {
         let mut idx: Index = serde_json::from_str(&raw)?;
         let thumbs_dir = paths.thumbs_dir(NAME);
         for entry in &mut idx.entries {
-            if entry.thumb.as_os_str().is_empty() {
-                if let Some((site, post)) = entry.id.split_once(':') {
+            if entry.thumb().as_os_str().is_empty() {
+                if let Some((site, post)) = entry.id().split_once(':') {
                     let guess = thumbs_dir.join(format!("{site}_{post}.png"));
                     if guess.is_file() {
-                        entry.thumb = guess;
+                        entry.set_thumb(guess);
                     }
                 }
             }
@@ -96,8 +107,7 @@ impl Integration for BooruIntegration {
     /// the same name is the same image.
     fn apply(&self, entry: &Entry, _monitor: &str, _paths: &Paths, config: &Config) -> Result<()> {
         let url = entry
-            .workshop_id
-            .as_deref()
+            .download_url()
             .filter(|s| !s.is_empty())
             .ok_or_else(|| {
                 anyhow!(
@@ -107,7 +117,7 @@ impl Integration for BooruIntegration {
         let into = config.booru.download_dir();
         std::fs::create_dir_all(&into)
             .with_context(|| format!("create download_dir {}", into.display()))?;
-        let dest = into.join(storage::filename_from_url(url, &entry.id));
+        let dest = into.join(storage::filename_from_url(url, entry.id()));
         if dest.is_file() {
             log::info!("booru: already downloaded {} — skipping", dest.display());
             return Ok(());

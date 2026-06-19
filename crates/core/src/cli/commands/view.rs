@@ -169,7 +169,7 @@ fn cmd_booru_view(paths: &Paths, state: &State, format: Format) -> Result<ExitCo
             // BooruPost keeps it distinct from ApplyImage so the rofi
             // wrapper can route us to download-then-monitor rather than
             // straight to a wallpaper apply.
-            action: Some(Action::BooruPost { id: e.id.clone() }),
+            action: Some(Action::BooruPost { id: e.id().to_string() }),
         });
     }
     // Rofi script-mode closes when it receives zero rows. A no-result search
@@ -229,8 +229,8 @@ fn cmd_tag_editor_view(
     let tags: Vec<String> = idx
         .entries
         .iter()
-        .find(|e| e.id == target)
-        .map(|e| e.tags.clone())
+        .find(|e| e.id() == target)
+        .map(|e| e.tags().to_vec())
         .unwrap_or_default();
     let label = target.rsplit('/').next().unwrap_or(target).to_string();
 

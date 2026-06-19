@@ -24,16 +24,16 @@ pub(super) fn filter_entries<'a>(
         .entries
         .iter()
         .filter(|e| {
-            if favorites_only && !favorites.is_favorite(&e.integration, &e.id) {
+            if favorites_only && !favorites.is_favorite(e.integration(), e.id()) {
                 return false;
             }
             if let Some(t) = tag {
-                if !e.tags.iter().any(|x| x == t) {
+                if !e.tags().iter().any(|x| x == t) {
                     return false;
                 }
             }
             if let Some(r) = rating {
-                if !r.is_empty() && r != "All" && e.rating != r {
+                if !r.is_empty() && r != "All" && e.rating() != r {
                     return false;
                 }
             }
@@ -41,7 +41,7 @@ pub(super) fn filter_entries<'a>(
                 // Match images that live directly inside `f` (trailing slash trimmed).
                 let want = f.trim_end_matches('/');
                 let parent = e
-                    .source
+                    .source()
                     .parent()
                     .map(|p| p.to_string_lossy().trim_end_matches('/').to_string())
                     .unwrap_or_default();
@@ -73,9 +73,9 @@ pub(super) fn emit_flat<W: Write>(
         .iter()
         .map(|e| Row::Entry {
             entry: e,
-            favorite: favorites.is_favorite(&e.integration, &e.id),
+            favorite: favorites.is_favorite(e.integration(), e.id()),
             label: None,
-            action: is_image.then(|| Action::ApplyImage { id: e.id.clone() }),
+            action: is_image.then(|| Action::ApplyImage { id: e.id().to_string() }),
         })
         .collect();
     write_rows(
@@ -104,15 +104,15 @@ pub(super) fn emit_drill_view<W: Write>(
     });
     for e in entries {
         let label = e
-            .source
+            .source()
             .file_name()
             .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| e.title.clone());
+            .unwrap_or_else(|| e.title().to_string());
         rows.push(Row::Entry {
             entry: e,
-            favorite: favorites.is_favorite(&e.integration, &e.id),
+            favorite: favorites.is_favorite(e.integration(), e.id()),
             label: Some(label),
-            action: Some(Action::ApplyImage { id: e.id.clone() }),
+            action: Some(Action::ApplyImage { id: e.id().to_string() }),
         });
     }
     let mut hints = view_hints_for(integration, Some(folder_path), favorites_only, tag_filter);
@@ -133,35 +133,32 @@ pub(super) fn emit_grouped_view<W: Write>(
     let mut seen_folders: BTreeSet<String> = BTreeSet::new();
 
     for e in entries {
-        if e.subfolder.is_empty() {
+        let subfolder = e.subfolder().unwrap_or("");
+        if subfolder.is_empty() {
             // Root-level: emit as individual entry. ApplyImage with the
             // entry id is what the shell needs — paths containing " - "
             // would otherwise be mis-split by display-text parsing.
             rows.push(Row::Entry {
                 entry: e,
-                favorite: favorites.is_favorite(&e.integration, &e.id),
+                favorite: favorites.is_favorite(e.integration(), e.id()),
                 label: None,
-                action: Some(Action::ApplyImage { id: e.id.clone() }),
+                action: Some(Action::ApplyImage { id: e.id().to_string() }),
             });
         } else {
-            // Nested: emit one entry per (workshop_id, subfolder).
-            let key = format!(
-                "{}\u{1c}{}",
-                e.workshop_id.clone().unwrap_or_default(),
-                e.subfolder
-            );
+            // Nested: emit one entry per (group_key, subfolder).
+            let key = format!("{}\u{1c}{}", e.group_key(), subfolder);
             if !seen_folders.insert(key) {
                 continue;
             }
             let folder_path = e
-                .source
+                .source()
                 .parent()
                 .map(|p| format!("{}/", p.to_string_lossy()))
                 .unwrap_or_default();
             rows.push(Row::Entry {
                 entry: e,
                 favorite: false, // folders aren't favoritable
-                label: Some(format!("{} - {}", e.title, e.subfolder)),
+                label: Some(format!("{} - {}", e.title(), subfolder)),
                 action: Some(Action::Drill { folder: folder_path }),
             });
         }

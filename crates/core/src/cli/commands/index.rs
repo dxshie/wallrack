@@ -48,7 +48,7 @@ pub(in crate::cli) fn run(paths: &Paths, config: &Config, integration: &str) -> 
                 let before = catalog.list(integ.name()).len();
                 catalog.extend(
                     integ.name(),
-                    idx.entries.iter().flat_map(|e| e.tags.iter().cloned()),
+                    idx.entries.iter().flat_map(|e| e.tags().iter().cloned()),
                 );
                 if catalog.list(integ.name()).len() != before {
                     catalog_dirty = true;

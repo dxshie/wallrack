@@ -76,12 +76,12 @@ pub fn find_in_index(paths: &Paths, post_id: &str, site_key: Option<&str>) -> Re
     idx.entries
         .iter()
         .find(|e| {
+            let id = e.id();
             if let Some(want) = target_id_with_site.as_deref() {
-                e.id == want
+                id == want
             } else {
-                e.id == post_id
-                    || e.id
-                        .rsplit_once(':')
+                id == post_id
+                    || id.rsplit_once(':')
                         .map(|(_, n)| n == post_id)
                         .unwrap_or(false)
             }
@@ -155,19 +155,16 @@ fn post_to_entry(
         format!("{} #{} — {}", p.site, p.id, head.join(" "))
     };
 
-    Entry {
-        integration: NAME.to_string(),
+    Entry::BooruPost {
         id: format!("{}:{}", p.site, p.id),
+        site: p.site.clone(),
+        post_id: p.id,
         title,
-        source: predicted,
         thumb: thumb_path,
-        rating: map_rating(&p.rating),
         tags: p.tags.clone(),
-        // workshop_id repurposed as the download URL — apply() reads it.
-        workshop_id: Some(p.file_url.clone()),
-        // subfolder repurposed as the site, so multi-site mixed searches
-        // could be grouped if we ever want it.
-        subfolder: p.site.clone(),
+        rating: map_rating(&p.rating),
+        download_url: p.file_url.clone(),
+        predicted_path: predicted,
     }
 }
 

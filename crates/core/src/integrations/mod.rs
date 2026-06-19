@@ -48,7 +48,14 @@ pub trait Integration {
             ));
         }
         let raw = std::fs::read_to_string(&file)?;
-        let mut idx: Index = serde_json::from_str(&raw)?;
+        let mut idx: Index = serde_json::from_str(&raw).map_err(|e| {
+            anyhow!(
+                "failed to parse {} index ({}) — if this index was built by an \
+                 older wallrack version, run `wallrack index --integration={}` \
+                 to rebuild it in the new format",
+                self.name(), e, self.name(),
+            )
+        })?;
         if let Ok(overrides) = crate::tags::TagOverrides::load(&paths.tags_file()) {
             overrides.apply_to(&mut idx);
         }

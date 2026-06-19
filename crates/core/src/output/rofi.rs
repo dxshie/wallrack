@@ -57,7 +57,7 @@ pub fn write<W: Write>(w: &mut W, rows: &[Row<'_>], hints: &ViewHints) -> Result
                 // text extraction can still recover the path.
                 let line = match label {
                     Some(custom) => format!("{star}{custom}"),
-                    None => format!("{star}{} - {}", entry.title, entry.id),
+                    None => format!("{star}{} - {}", entry.title(), entry.id()),
                 };
                 w.write_all(line.as_bytes())?;
                 // Rofi metadata: one NUL between display text and the first
@@ -65,12 +65,12 @@ pub fn write<W: Write>(w: &mut W, rows: &[Row<'_>], hints: &ViewHints) -> Result
                 // hides everything after the first one (including `info`),
                 // which is why folder rows never drilled in.
                 let mut wrote_meta = false;
-                if !entry.thumb.as_os_str().is_empty() {
+                if !entry.thumb().as_os_str().is_empty() {
                     w.write_all(&[NUL])?;
                     wrote_meta = true;
                     write!(w, "icon")?;
                     w.write_all(&[SEP])?;
-                    w.write_all(entry.thumb.to_string_lossy().as_bytes())?;
+                    w.write_all(entry.thumb().to_string_lossy().as_bytes())?;
                 }
                 // Emit `info` only when the caller asked for it. The shell
                 // routes selections off this field — Action::to_legacy_string
