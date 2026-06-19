@@ -6,8 +6,11 @@ use clap::ValueEnum;
 
 use crate::entry::Entry;
 
+pub mod action;
 mod dmenu;
 pub mod rofi;
+
+pub use action::Action;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum Format {
@@ -43,19 +46,20 @@ pub struct ViewHints {
 }
 
 /// A row to emit. Either a real entry or a synthetic control row
-/// (e.g. "← Back", "All tags"). Control rows carry only the `info` hint.
+/// (e.g. "← Back", "All tags"). Control rows carry only the routing action.
 pub enum Row<'a> {
     Entry {
         entry: &'a Entry,
         favorite: bool,
         /// Override the label shown in the picker (overrides the entry title).
         label: Option<String>,
-        /// Override the info payload (defaults to the entry id).
-        info: Option<String>,
+        /// Override the routing action. `None` defaults to
+        /// `Action::ApplyImage { id: entry.id }` for image-based integrations.
+        action: Option<Action>,
     },
     Control {
         label: String,
-        info: String,
+        action: Action,
         /// Optional thumbnail to render alongside the row (e.g. a sample image
         /// for a tag in the tag-picker view). Ignored when empty.
         icon: Option<PathBuf>,
@@ -77,9 +81,8 @@ pub fn write_rows<W: Write>(
     }
 }
 
-/// Common display/icon/payload triple extracted from any `Row`. The three
-/// dmenu dialects render the same data with different separators; the rofi
-/// renderer also reuses these strings via [`row_parts`].
+/// Common display/icon/payload triple extracted from any `Row`. The dmenu
+/// dialects and the rofi renderer both build their wire format from these.
 pub(crate) struct RowParts {
     pub display: String,
     pub icon: String,
@@ -92,7 +95,7 @@ pub(crate) fn row_parts(row: &Row<'_>) -> RowParts {
             entry,
             favorite,
             label,
-            info,
+            action,
         } => {
             let star = if *favorite { "\u{2605} " } else { "" };
             let display = match label {
@@ -100,22 +103,23 @@ pub(crate) fn row_parts(row: &Row<'_>) -> RowParts {
                 None => format!("{star}{} - {}", entry.title, entry.id),
             };
             let icon = entry.thumb.to_string_lossy().into_owned();
-            let payload = info
-                .clone()
-                .unwrap_or_else(|| format!("image:{}", entry.id));
+            let payload = action
+                .as_ref()
+                .map(Action::to_legacy_string)
+                .unwrap_or_else(|| Action::ApplyImage { id: entry.id.clone() }.to_legacy_string());
             RowParts {
                 display,
                 icon,
                 payload,
             }
         }
-        Row::Control { label, info, icon } => RowParts {
+        Row::Control { label, action, icon } => RowParts {
             display: label.clone(),
             icon: icon
                 .as_ref()
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default(),
-            payload: info.clone(),
+            payload: action.to_legacy_string(),
         },
     }
 }
@@ -129,24 +133,34 @@ fn write_json<W: Write>(w: &mut W, rows: &[Row<'_>]) -> Result<()> {
                 entry,
                 favorite,
                 label,
-                info,
-            } => json!({
-                "integration": entry.integration,
-                "id": entry.id,
-                "title": label.clone().unwrap_or_else(|| entry.title.clone()),
-                "source": entry.source,
-                "thumb": entry.thumb,
-                "tags": entry.tags,
-                "rating": entry.rating,
-                "workshop_id": entry.workshop_id,
-                "subfolder": entry.subfolder,
-                "favorite": favorite,
-                "info": info,
-            }),
-            Row::Control { label, info, icon } => json!({
+                action,
+            } => {
+                // Default action mirrors the dmenu default: ApplyImage with
+                // the entry id. JSON consumers get the structured form, plus
+                // the legacy `info` string for backward-compat parsers.
+                let resolved = action
+                    .clone()
+                    .unwrap_or_else(|| Action::ApplyImage { id: entry.id.clone() });
+                json!({
+                    "integration": entry.integration,
+                    "id": entry.id,
+                    "title": label.clone().unwrap_or_else(|| entry.title.clone()),
+                    "source": entry.source,
+                    "thumb": entry.thumb,
+                    "tags": entry.tags,
+                    "rating": entry.rating,
+                    "workshop_id": entry.workshop_id,
+                    "subfolder": entry.subfolder,
+                    "favorite": favorite,
+                    "info": resolved.to_legacy_string(),
+                    "action": resolved,
+                })
+            }
+            Row::Control { label, action, icon } => json!({
                 "control": true,
                 "label": label,
-                "info": info,
+                "info": action.to_legacy_string(),
+                "action": action,
                 "icon": icon,
             }),
         })

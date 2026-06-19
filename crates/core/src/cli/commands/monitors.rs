@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use crate::config::Config;
 use crate::entry::Index;
 use crate::integrations::{self, wallpaper_engine};
-use crate::output::{Format, Row, ViewHints, write_rows};
+use crate::output::{Action, Format, Row, ViewHints, write_rows};
 use crate::paths::Paths;
 
 use super::super::state_helpers::resolve_integration;
@@ -45,12 +45,14 @@ pub(in crate::cli) fn run(
         Format::Rofi => {
             // Rofi uses $selection (the label) as the monitor name and
             // ROFI_INFO (the info field) as the target to apply — so target
-            // must be in info here.
+            // must be in info here. The picker shell reads ROFI_INFO
+            // verbatim as the apply target; Action::Raw keeps the wire
+            // bytes identical to the pre-typed-action era.
             let rows: Vec<Row<'_>> = monitors
                 .iter()
                 .map(|m| Row::Control {
                     label: m.clone(),
-                    info: target.unwrap_or_default().to_string(),
+                    action: Action::Raw { value: target.unwrap_or_default().to_string() },
                     icon: thumbs.get(m).cloned(),
                 })
                 .collect();
@@ -64,12 +66,12 @@ pub(in crate::cli) fn run(
             // dmenu pickers (walker/fuzzel/wofi) return the payload column of
             // the selected row, so put the monitor name there. The target is
             // already known by the caller and does not need to be round-tripped
-            // through the picker.
+            // through the picker. Action::Raw tunnels the bare name.
             let rows: Vec<Row<'_>> = monitors
                 .iter()
                 .map(|m| Row::Control {
                     label: m.clone(),
-                    info: m.clone(),
+                    action: Action::Raw { value: m.clone() },
                     icon: thumbs.get(m).cloned(),
                 })
                 .collect();

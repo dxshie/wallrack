@@ -8,7 +8,7 @@ use std::process::ExitCode;
 use anyhow::Result;
 
 use crate::integrations;
-use crate::output::{Format, Row, ViewHints, write_rows};
+use crate::output::{Action, Format, Row, ViewHints, write_rows};
 use crate::paths::Paths;
 
 use super::super::state_helpers::resolve_integration;
@@ -56,13 +56,13 @@ pub(in crate::cli) fn run(
             let mut rows: Vec<Row<'_>> = Vec::new();
             rows.push(Row::Control {
                 label: "All tags".to_string(),
-                info: "tag:".to_string(),
+                action: Action::FilterTag { tag: String::new() },
                 icon: None,
             });
             for (t, thumb) in &tag_thumb {
                 rows.push(Row::Control {
                     label: t.to_string(),
-                    info: format!("tag:{t}"),
+                    action: Action::FilterTag { tag: t.to_string() },
                     icon: thumb.map(|p| p.to_path_buf()),
                 });
             }

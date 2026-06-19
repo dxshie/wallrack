@@ -50,7 +50,7 @@ pub fn write<W: Write>(w: &mut W, rows: &[Row<'_>], hints: &ViewHints) -> Result
 
     for row in rows {
         match row {
-            Row::Entry { entry, favorite, label, info } => {
+            Row::Entry { entry, favorite, label, action } => {
                 let star = if *favorite { "★ " } else { "" };
                 // When caller supplies a label, trust it verbatim (e.g. folder
                 // grouped rows). Otherwise append `- <id>` so a shell using
@@ -73,17 +73,17 @@ pub fn write<W: Write>(w: &mut W, rows: &[Row<'_>], hints: &ViewHints) -> Result
                     w.write_all(entry.thumb.to_string_lossy().as_bytes())?;
                 }
                 // Emit `info` only when the caller asked for it. The shell
-                // routes selections off this field, so callers encode the
-                // intended action (e.g. `image:<id>`, `folder:<path>`).
-                if let Some(info_str) = info {
+                // routes selections off this field — Action::to_legacy_string
+                // produces the same magic-string forms the shells already parse.
+                if let Some(act) = action {
                     w.write_all(&[if wrote_meta { SEP } else { NUL }])?;
                     write!(w, "info")?;
                     w.write_all(&[SEP])?;
-                    w.write_all(info_str.as_bytes())?;
+                    w.write_all(act.to_legacy_string().as_bytes())?;
                 }
                 writeln!(w)?;
             }
-            Row::Control { label, info, icon } => {
+            Row::Control { label, action, icon } => {
                 w.write_all(label.as_bytes())?;
                 let mut wrote_meta = false;
                 if let Some(path) = icon {
@@ -98,7 +98,7 @@ pub fn write<W: Write>(w: &mut W, rows: &[Row<'_>], hints: &ViewHints) -> Result
                 w.write_all(&[if wrote_meta { SEP } else { NUL }])?;
                 write!(w, "info")?;
                 w.write_all(&[SEP])?;
-                w.write_all(info.as_bytes())?;
+                w.write_all(action.to_legacy_string().as_bytes())?;
                 writeln!(w)?;
             }
         }

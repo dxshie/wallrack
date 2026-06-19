@@ -7,7 +7,7 @@ use crate::config::Config;
 use crate::entry::Entry;
 use crate::favorites::Favorites;
 use crate::integrations::{self, booru};
-use crate::output::{Format, Row, ViewHints, write_rows};
+use crate::output::{Action, Format, Row, ViewHints, write_rows};
 use crate::paths::Paths;
 use crate::state::State;
 
@@ -91,7 +91,7 @@ fn run_search(
             entry: e,
             favorite: favorites.is_favorite(&e.integration, &e.id),
             label: None,
-            info: Some(format!("booru:{}", e.id)),
+            action: Some(Action::BooruSearchHit { id: e.id.clone() }),
         })
         .collect();
     let hints = ViewHints {

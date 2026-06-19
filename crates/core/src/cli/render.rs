@@ -10,7 +10,7 @@ use anyhow::Result;
 use crate::entry::{Entry, Index};
 use crate::favorites::Favorites;
 use crate::integrations;
-use crate::output::{Format, Row, ViewHints, write_rows};
+use crate::output::{Action, Format, Row, ViewHints, write_rows};
 
 pub(super) fn filter_entries<'a>(
     index: &'a Index,
@@ -67,7 +67,7 @@ pub(super) fn emit_flat<W: Write>(
     // have to recover it by string-splitting the display line — file paths
     // like "foo - bar.jpg" would break that on the last " - ". The `we`
     // integration uses folder paths (no " - " in workshop ids) so the
-    // string-split fallback is safe and we don't override its info.
+    // string-split fallback is safe and we don't override its action.
     let is_image = integration == "wallpaper" || integration == "we_image";
     let rows: Vec<Row<'_>> = entries
         .iter()
@@ -75,11 +75,7 @@ pub(super) fn emit_flat<W: Write>(
             entry: e,
             favorite: favorites.is_favorite(&e.integration, &e.id),
             label: None,
-            info: if is_image {
-                Some(format!("image:{}", e.id))
-            } else {
-                None
-            },
+            action: is_image.then(|| Action::ApplyImage { id: e.id.clone() }),
         })
         .collect();
     write_rows(
@@ -103,7 +99,7 @@ pub(super) fn emit_drill_view<W: Write>(
     let mut rows: Vec<Row<'_>> = Vec::with_capacity(entries.len() + 1);
     rows.push(Row::Control {
         label: "← Back".to_string(),
-        info: "back:".to_string(),
+        action: Action::Back,
         icon: None,
     });
     for e in entries {
@@ -116,7 +112,7 @@ pub(super) fn emit_drill_view<W: Write>(
             entry: e,
             favorite: favorites.is_favorite(&e.integration, &e.id),
             label: Some(label),
-            info: Some(format!("image:{}", e.id)),
+            action: Some(Action::ApplyImage { id: e.id.clone() }),
         });
     }
     let mut hints = view_hints_for(integration, Some(folder_path), favorites_only, tag_filter);
@@ -138,15 +134,14 @@ pub(super) fn emit_grouped_view<W: Write>(
 
     for e in entries {
         if e.subfolder.is_empty() {
-            // Root-level: emit as individual entry. `image:<id>` info makes
-            // the shell route to the monitor picker without parsing the
-            // display line — paths containing " - " would otherwise be
-            // mis-split.
+            // Root-level: emit as individual entry. ApplyImage with the
+            // entry id is what the shell needs — paths containing " - "
+            // would otherwise be mis-split by display-text parsing.
             rows.push(Row::Entry {
                 entry: e,
                 favorite: favorites.is_favorite(&e.integration, &e.id),
                 label: None,
-                info: Some(format!("image:{}", e.id)),
+                action: Some(Action::ApplyImage { id: e.id.clone() }),
             });
         } else {
             // Nested: emit one entry per (workshop_id, subfolder).
@@ -167,7 +162,7 @@ pub(super) fn emit_grouped_view<W: Write>(
                 entry: e,
                 favorite: false, // folders aren't favoritable
                 label: Some(format!("{} - {}", e.title, e.subfolder)),
-                info: Some(format!("folder:{folder_path}")),
+                action: Some(Action::Drill { folder: folder_path }),
             });
         }
     }
@@ -217,7 +212,7 @@ pub(super) fn emit_empty_view<W: Write>(
     };
     let row = Row::Control {
         label: format!("{reason}{hint}"),
-        info: "noop:empty".to_string(),
+        action: Action::Noop { reason: "empty".into() },
         icon: None,
     };
     let hints = view_hints_for(integration, None, favorites_only, tag_filter);

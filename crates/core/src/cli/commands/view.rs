@@ -9,7 +9,7 @@ use anyhow::Result;
 use crate::config::Config;
 use crate::favorites::Favorites;
 use crate::integrations;
-use crate::output::{Format, Row, ViewHints, write_rows};
+use crate::output::{Action, Format, Row, ViewHints, write_rows};
 use crate::paths::Paths;
 use crate::state::{PickerView, State};
 
@@ -129,7 +129,7 @@ fn cmd_booru_view(paths: &Paths, state: &State, format: Format) -> Result<ExitCo
     if state.booru_search_mode_on() {
         let rows = [Row::Control {
             label: "← Cancel".to_string(),
-            info: "booru:cancel-search".to_string(),
+            action: Action::BooruCancelSearch,
             icon: None,
         }];
         let hints = ViewHints {
@@ -166,10 +166,10 @@ fn cmd_booru_view(paths: &Paths, state: &State, format: Format) -> Result<ExitCo
             entry: e,
             favorite: false,
             label: None,
-            // `booru-post:` keeps it distinct from `image:<path>` so the rofi
+            // BooruPost keeps it distinct from ApplyImage so the rofi
             // wrapper can route us to download-then-monitor rather than
             // straight to a wallpaper apply.
-            info: Some(format!("booru-post:{}", e.id)),
+            action: Some(Action::BooruPost { id: e.id.clone() }),
         });
     }
     // Rofi script-mode closes when it receives zero rows. A no-result search
@@ -184,7 +184,7 @@ fn cmd_booru_view(paths: &Paths, state: &State, format: Format) -> Result<ExitCo
         };
         rows.push(Row::Control {
             label,
-            info: "noop:booru-empty".to_string(),
+            action: Action::Noop { reason: "booru-empty".into() },
             icon: None,
         });
     }
@@ -237,12 +237,12 @@ fn cmd_tag_editor_view(
     let mut rows: Vec<Row<'_>> = Vec::with_capacity(tags.len() + 2);
     rows.push(Row::Control {
         label: "← Back".to_string(),
-        info: "tagedit:back".to_string(),
+        action: Action::TagEditBack,
         icon: None,
     });
     rows.push(Row::Control {
         label: "+ Add tag…".to_string(),
-        info: "tagedit:add".to_string(),
+        action: Action::TagEditAdd,
         icon: None,
     });
     for t in &tags {
@@ -251,7 +251,7 @@ fn cmd_tag_editor_view(
         }
         rows.push(Row::Control {
             label: t.clone(),
-            info: format!("tagedit:remove:{t}"),
+            action: Action::TagEditRemove { tag: t.clone() },
             icon: None,
         });
     }
@@ -285,7 +285,7 @@ fn cmd_add_tag_view(
     let mut rows: Vec<Row<'_>> = Vec::with_capacity(tags.len() + 1);
     rows.push(Row::Control {
         label: "← Cancel".to_string(),
-        info: "tagedit:cancel".to_string(),
+        action: Action::TagEditCancel,
         icon: None,
     });
     for t in &tags {
@@ -294,9 +294,7 @@ fn cmd_add_tag_view(
         }
         rows.push(Row::Control {
             label: t.clone(),
-            // The rofi script treats a non-`tagedit:*` info as "user picked a
-            // catalog tag to add" — same convention here for any wrapper.
-            info: format!("tagedit:pick:{t}"),
+            action: Action::TagEditPick { tag: t.clone() },
             icon: None,
         });
     }
