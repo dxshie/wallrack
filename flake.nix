@@ -13,7 +13,7 @@
 
         wallrack = pkgs.rustPlatform.buildRustPackage {
           pname = "wallrack";
-          version = "0.2.1";
+          version = "0.3.0";
 
           src = pkgs.lib.cleanSourceWith {
             src = ./.;
@@ -23,6 +23,12 @@
           };
 
           cargoLock.lockFile = ./Cargo.lock;
+
+          # Workspace has both a library (wallrack-core) and a binary (wallrack);
+          # constrain the build to just the binary crate so nix builds the same
+          # thing `cargo build --release` does at the workspace root.
+          cargoBuildFlags = [ "-p" "wallrack" ];
+          cargoTestFlags = [ "--workspace" ];
 
           # All Rust deps are pure-Rust (image, jpeg-decoder, sha2, nix, notify,
           # …); no system libs to link. Runtime tools (awww/swww,

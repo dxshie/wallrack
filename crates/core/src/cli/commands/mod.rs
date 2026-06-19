@@ -1,0 +1,13 @@
+pub(super) mod apply;
+pub(super) mod booru;
+pub(super) mod daemon;
+pub(super) mod favorites;
+pub(super) mod index;
+pub(super) mod info;
+pub(super) mod list;
+pub(super) mod monitors;
+pub(super) mod rating;
+pub(super) mod state;
+pub(super) mod tag;
+pub(super) mod tags;
+pub(super) mod view;

@@ -1,0 +1,14 @@
+[package]
+name = "wallrack"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "wallrack"
+path = "src/main.rs"
+
+[dependencies]
+wallrack-core = { path = "../core" }
+log = { workspace = true }
+env_logger = { workspace = true }
