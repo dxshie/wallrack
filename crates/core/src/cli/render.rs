@@ -75,7 +75,9 @@ pub(super) fn emit_flat<W: Write>(
             entry: e,
             favorite: favorites.is_favorite(e.integration(), e.id()),
             label: None,
-            action: is_image.then(|| Action::ApplyImage { id: e.id().to_string() }),
+            action: is_image.then(|| Action::ApplyImage {
+                id: e.id().to_string(),
+            }),
         })
         .collect();
     write_rows(
@@ -86,6 +88,7 @@ pub(super) fn emit_flat<W: Write>(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_drill_view<W: Write>(
     w: &mut W,
     entries: &[&Entry],
@@ -112,7 +115,9 @@ pub(super) fn emit_drill_view<W: Write>(
             entry: e,
             favorite: favorites.is_favorite(e.integration(), e.id()),
             label: Some(label),
-            action: Some(Action::ApplyImage { id: e.id().to_string() }),
+            action: Some(Action::ApplyImage {
+                id: e.id().to_string(),
+            }),
         });
     }
     let mut hints = view_hints_for(integration, Some(folder_path), favorites_only, tag_filter);
@@ -142,7 +147,9 @@ pub(super) fn emit_grouped_view<W: Write>(
                 entry: e,
                 favorite: favorites.is_favorite(e.integration(), e.id()),
                 label: None,
-                action: Some(Action::ApplyImage { id: e.id().to_string() }),
+                action: Some(Action::ApplyImage {
+                    id: e.id().to_string(),
+                }),
             });
         } else {
             // Nested: emit one entry per (group_key, subfolder).
@@ -159,7 +166,9 @@ pub(super) fn emit_grouped_view<W: Write>(
                 entry: e,
                 favorite: false, // folders aren't favoritable
                 label: Some(format!("{} - {}", e.title(), subfolder)),
-                action: Some(Action::Drill { folder: folder_path }),
+                action: Some(Action::Drill {
+                    folder: folder_path,
+                }),
             });
         }
     }
@@ -209,7 +218,9 @@ pub(super) fn emit_empty_view<W: Write>(
     };
     let row = Row::Control {
         label: format!("{reason}{hint}"),
-        action: Action::Noop { reason: "empty".into() },
+        action: Action::Noop {
+            reason: "empty".into(),
+        },
         icon: None,
     };
     let hints = view_hints_for(integration, None, favorites_only, tag_filter);

@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 use sled::{Db, Tree};
 
 use crate::entry::Index;
-use crate::store::{KEY_SEP, TREE_TAG_CATALOG, TREE_TAG_OVERRIDES, composite_key, read_json, write_json};
+use crate::store::{
+    KEY_SEP, TREE_TAG_CATALOG, TREE_TAG_OVERRIDES, composite_key, read_json, write_json,
+};
 
 /// Per-integration "known tags" catalog. Populated by:
 ///   - indexing (union of native tags from project.json etc.)
@@ -139,7 +141,13 @@ impl TagOverrides {
     /// Replace the effective tag set on this entry with `new_tags`. `native`
     /// is the entry's tags before overrides — used to compute the minimal
     /// added/removed deltas so the override survives index regenerations.
-    pub fn set(&self, integration: &str, id: &str, new_tags: &[String], native: &[String]) -> Result<()> {
+    pub fn set(
+        &self,
+        integration: &str,
+        id: &str,
+        new_tags: &[String],
+        native: &[String],
+    ) -> Result<()> {
         let new: BTreeSet<String> = new_tags.iter().cloned().collect();
         let native: BTreeSet<String> = native.iter().cloned().collect();
         let entry = EntryOverride {

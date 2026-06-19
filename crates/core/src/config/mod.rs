@@ -10,7 +10,7 @@ pub mod booru;
 
 pub use booru::{BooruApiKind, BooruConfig, BooruHttpPolicy, BooruSite};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub thumbnails: Thumbnails,
@@ -110,23 +110,12 @@ impl Default for Thumbnails {
     }
 }
 
-fn default_thumb_size() -> u32 { 256 }
+fn default_thumb_size() -> u32 {
+    256
+}
 
 fn default_we_workshop_dir() -> String {
     "~/.local/share/Steam/steamapps/workshop/content/431960".to_string()
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            thumbnails: Thumbnails::default(),
-            wallpaper: WallpaperConfig::default(),
-            wallpaper_engine_image: WallpaperEngineImageConfig::default(),
-            wallpaper_engine: WallpaperEngineConfig::default(),
-            booru: BooruConfig::default(),
-            hooks: Hooks::default(),
-        }
-    }
 }
 
 impl Config {
@@ -140,10 +129,10 @@ impl Config {
                 .with_context(|| format!("write default config to {}", file.display()))?;
             return Ok(default);
         }
-        let body = fs::read_to_string(&file)
-            .with_context(|| format!("read config {}", file.display()))?;
-        let cfg: Config = toml::from_str(&body)
-            .with_context(|| format!("parse config {}", file.display()))?;
+        let body =
+            fs::read_to_string(&file).with_context(|| format!("read config {}", file.display()))?;
+        let cfg: Config =
+            toml::from_str(&body).with_context(|| format!("parse config {}", file.display()))?;
         Ok(cfg)
     }
 

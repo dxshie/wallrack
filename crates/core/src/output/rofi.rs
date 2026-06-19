@@ -50,7 +50,12 @@ pub fn write<W: Write>(w: &mut W, rows: &[Row<'_>], hints: &ViewHints) -> Result
 
     for row in rows {
         match row {
-            Row::Entry { entry, favorite, label, action } => {
+            Row::Entry {
+                entry,
+                favorite,
+                label,
+                action,
+            } => {
                 let star = if *favorite { "★ " } else { "" };
                 // When caller supplies a label, trust it verbatim (e.g. folder
                 // grouped rows). Otherwise append `- <id>` so a shell using
@@ -83,7 +88,11 @@ pub fn write<W: Write>(w: &mut W, rows: &[Row<'_>], hints: &ViewHints) -> Result
                 }
                 writeln!(w)?;
             }
-            Row::Control { label, action, icon } => {
+            Row::Control {
+                label,
+                action,
+                icon,
+            } => {
                 w.write_all(label.as_bytes())?;
                 let mut wrote_meta = false;
                 if let Some(path) = icon {

@@ -22,8 +22,12 @@ pub const NAME: &str = "we_image";
 pub struct WallpaperEngineImageIntegration;
 
 impl Integration for WallpaperEngineImageIntegration {
-    fn name(&self) -> &'static str { NAME }
-    fn label(&self) -> &'static str { "WE Image" }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn label(&self) -> &'static str {
+        "WE Image"
+    }
 
     fn index(&self, paths: &Paths, config: &Config) -> Result<Index> {
         paths.ensure_integration(NAME)?;
@@ -33,7 +37,10 @@ impl Integration for WallpaperEngineImageIntegration {
         let workshop = config.we_image_workshop_dir();
         if !workshop.is_dir() {
             log::warn!("we_image: workshop dir not found: {}", workshop.display());
-            let index = Index { integration: NAME.to_string(), entries: Vec::new() };
+            let index = Index {
+                integration: NAME.to_string(),
+                entries: Vec::new(),
+            };
             crate::integrations::write_index(paths, &index)?;
             return Ok(index);
         }
@@ -56,7 +63,10 @@ impl Integration for WallpaperEngineImageIntegration {
             .collect();
         progress.finish();
 
-        let index = Index { integration: NAME.to_string(), entries };
+        let index = Index {
+            integration: NAME.to_string(),
+            entries,
+        };
         crate::integrations::write_index(paths, &index)?;
         Ok(index)
     }
@@ -119,7 +129,9 @@ fn collect_workshop_images(workshop: &Path, out: &mut Vec<EntrySource>) -> Resul
             .to_string();
         let (title, rating, tags) = match read_project_json(&project_json) {
             Ok(meta) => (
-                meta.title.filter(|s| !s.is_empty()).unwrap_or_else(|| workshop_id.clone()),
+                meta.title
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| workshop_id.clone()),
                 meta.contentrating.unwrap_or_default(),
                 meta.tags.unwrap_or_default(),
             ),
@@ -144,7 +156,8 @@ fn build_entry(src: &EntrySource, thumbs_dir: &Path, size: u32) -> Result<Entry>
     let thumb = thumbs_dir.join(&thumb_name);
     let _ = thumbnail::generate(&src.image, &thumb, size);
 
-    let subfolder = src.image
+    let subfolder = src
+        .image
         .parent()
         .and_then(|p| p.strip_prefix(&src.project_root).ok())
         .map(|p| p.to_string_lossy().to_string())

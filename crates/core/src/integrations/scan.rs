@@ -53,9 +53,8 @@ pub struct ProjectJson {
 }
 
 pub fn read_project_json(path: &Path) -> Result<ProjectJson> {
-    let body = std::fs::read_to_string(path)
-        .with_context(|| format!("read {}", path.display()))?;
-    let parsed: ProjectJson = serde_json::from_str(&body)
-        .with_context(|| format!("parse {}", path.display()))?;
+    let body = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let parsed: ProjectJson =
+        serde_json::from_str(&body).with_context(|| format!("parse {}", path.display()))?;
     Ok(parsed)
 }

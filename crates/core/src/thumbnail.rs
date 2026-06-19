@@ -3,8 +3,8 @@ use std::io::BufReader;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use image::{DynamicImage, GrayImage, RgbImage};
 use image::imageops::FilterType;
+use image::{DynamicImage, GrayImage, RgbImage};
 
 /// Generate a square center-cropped thumbnail at `size`x`size`. The output
 /// format is inferred from `dst`'s extension by the `image` crate — wallrack
@@ -16,11 +16,9 @@ pub fn generate(src: &Path, dst: &Path, size: u32) -> Result<()> {
         return Ok(());
     }
     if let Some(parent) = dst.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("create {}", parent.display()))?;
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
-    let img = decode(src, size)
-        .with_context(|| format!("decode {}", src.display()))?;
+    let img = decode(src, size).with_context(|| format!("decode {}", src.display()))?;
     // Fill: scale so the shorter side matches `size`, then center-crop.
     let (w, h) = (img.width(), img.height());
     let short = w.min(h).max(1);
@@ -34,7 +32,8 @@ pub fn generate(src: &Path, dst: &Path, size: u32) -> Result<()> {
         size,
         size,
     );
-    cropped.save(dst)
+    cropped
+        .save(dst)
         .with_context(|| format!("write thumb {}", dst.display()))?;
     Ok(())
 }
@@ -88,4 +87,3 @@ fn up_to_date(src: &Path, dst: &Path) -> bool {
         _ => false,
     }
 }
-

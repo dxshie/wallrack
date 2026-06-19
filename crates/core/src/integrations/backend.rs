@@ -100,7 +100,9 @@ pub fn run_current_image(cfg: &BackendConfig) -> HashMap<String, PathBuf> {
     let Some(template) = cfg.current_image_cmd.as_deref() else {
         return HashMap::new();
     };
-    let Ok(output) = run_shell(template) else { return HashMap::new() };
+    let Ok(output) = run_shell(template) else {
+        return HashMap::new();
+    };
     if !output.status.success() {
         return HashMap::new();
     }

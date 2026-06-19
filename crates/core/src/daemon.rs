@@ -18,7 +18,9 @@ pub struct Daemon<'a> {
 }
 
 impl<'a> Daemon<'a> {
-    pub fn new(paths: &'a Paths) -> Self { Self { paths } }
+    pub fn new(paths: &'a Paths) -> Self {
+        Self { paths }
+    }
 
     pub fn start(&self, config: &Config, foreground: bool) -> Result<()> {
         if let Some(pid) = self.running_pid() {
@@ -96,7 +98,9 @@ impl<'a> Daemon<'a> {
         unsafe {
             use std::os::unix::process::CommandExt;
             cmd.pre_exec(|| {
-                nix::unistd::setsid().map(|_| ()).map_err(std::io::Error::from)
+                nix::unistd::setsid()
+                    .map(|_| ())
+                    .map_err(std::io::Error::from)
             });
         }
         let child = cmd.spawn().context("spawn detached daemon")?;
@@ -117,8 +121,8 @@ impl<'a> Daemon<'a> {
         // declared watch dirs. We map each watched path back to the integration
         // names that depend on it so a single event only re-indexes what's affected.
         let (tx, rx) = mpsc::channel();
-        let mut debouncer = new_debouncer(Duration::from_secs(2), None, tx)
-            .context("create watcher")?;
+        let mut debouncer =
+            new_debouncer(Duration::from_secs(2), None, tx).context("create watcher")?;
 
         let mut watched: Vec<(std::path::PathBuf, &'static str)> = Vec::new();
         for integ in &integrations {
@@ -146,7 +150,9 @@ impl<'a> Daemon<'a> {
                         }
                     }
                     for name in affected {
-                        let Ok(integ) = integrations::by_name(name) else { continue };
+                        let Ok(integ) = integrations::by_name(name) else {
+                            continue;
+                        };
                         notify_processing(name);
                         log::info!("re-indexing {name}");
                         if let Err(err) = integ.index(self.paths, config) {
@@ -174,8 +180,10 @@ fn path_under(path: &Path, root: &Path) -> bool {
 // missing notify-send (headless box, no notification daemon) is silently ignored.
 fn notify_processing(name: &str) {
     let _ = std::process::Command::new("notify-send")
-        .arg("-a").arg("wallrack")
-        .arg("-i").arg("image-x-generic")
+        .arg("-a")
+        .arg("wallrack")
+        .arg("-i")
+        .arg("image-x-generic")
         .arg("Wallrack")
         .arg(format!("New items detected — re-indexing {name}"))
         .stdout(std::process::Stdio::null())

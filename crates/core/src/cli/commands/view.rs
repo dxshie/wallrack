@@ -38,9 +38,7 @@ pub(in crate::cli) fn run(paths: &Paths, format: Format) -> Result<ExitCode> {
             };
             cmd_add_tag_view(paths, &integration, label_target, format)
         }
-        PickerView::TagEditor => {
-            cmd_tag_editor_view(paths, &integration, &tag_edit_target, format)
-        }
+        PickerView::TagEditor => cmd_tag_editor_view(paths, &integration, &tag_edit_target, format),
         PickerView::TagFolderEditor => {
             cmd_tag_folder_editor_view(paths, &integration, &tag_edit_folder, format)
         }
@@ -191,7 +189,9 @@ fn cmd_booru_view(paths: &Paths, state: &State, format: Format) -> Result<ExitCo
             // BooruPost keeps it distinct from ApplyImage so the rofi
             // wrapper can route us to download-then-monitor rather than
             // straight to a wallpaper apply.
-            action: Some(Action::BooruPost { id: e.id().to_string() }),
+            action: Some(Action::BooruPost {
+                id: e.id().to_string(),
+            }),
         });
     }
     // Rofi script-mode closes when it receives zero rows. A no-result search
@@ -206,7 +206,9 @@ fn cmd_booru_view(paths: &Paths, state: &State, format: Format) -> Result<ExitCo
         };
         rows.push(Row::Control {
             label,
-            action: Action::Noop { reason: "booru-empty".into() },
+            action: Action::Noop {
+                reason: "booru-empty".into(),
+            },
             icon: None,
         });
     }
@@ -301,8 +303,8 @@ fn cmd_tag_folder_editor_view(
     folder: &str,
     format: Format,
 ) -> Result<ExitCode> {
-    use std::collections::BTreeSet;
     use crate::cli::state_helpers::entries_in_folder;
+    use std::collections::BTreeSet;
 
     let entries = entries_in_folder(paths, integration, folder)?;
     let mut tags: BTreeSet<String> = BTreeSet::new();
@@ -378,17 +380,23 @@ fn cmd_rating_folder_editor_view(
         },
         Row::Control {
             label: "Mature".to_string(),
-            action: Action::RatingEditSet { rating: "Mature".to_string() },
+            action: Action::RatingEditSet {
+                rating: "Mature".to_string(),
+            },
             icon: None,
         },
         Row::Control {
             label: "Questionable".to_string(),
-            action: Action::RatingEditSet { rating: "Questionable".to_string() },
+            action: Action::RatingEditSet {
+                rating: "Questionable".to_string(),
+            },
             icon: None,
         },
         Row::Control {
             label: "Everyone".to_string(),
-            action: Action::RatingEditSet { rating: "Everyone".to_string() },
+            action: Action::RatingEditSet {
+                rating: "Everyone".to_string(),
+            },
             icon: None,
         },
         Row::Control {
@@ -440,17 +448,23 @@ fn cmd_rating_editor_view(
         },
         Row::Control {
             label: "Mature".to_string(),
-            action: Action::RatingEditSet { rating: "Mature".to_string() },
+            action: Action::RatingEditSet {
+                rating: "Mature".to_string(),
+            },
             icon: None,
         },
         Row::Control {
             label: "Questionable".to_string(),
-            action: Action::RatingEditSet { rating: "Questionable".to_string() },
+            action: Action::RatingEditSet {
+                rating: "Questionable".to_string(),
+            },
             icon: None,
         },
         Row::Control {
             label: "Everyone".to_string(),
-            action: Action::RatingEditSet { rating: "Everyone".to_string() },
+            action: Action::RatingEditSet {
+                rating: "Everyone".to_string(),
+            },
             icon: None,
         },
         Row::Control {
@@ -461,9 +475,7 @@ fn cmd_rating_editor_view(
     ];
     let hints = ViewHints {
         prompt: format!("Rating: {label}"),
-        message: format!(
-            "Current: {current} — Enter to set | ← Back to cancel"
-        ),
+        message: format!("Current: {current} — Enter to set | ← Back to cancel"),
         use_hot_keys: true,
         allow_custom: false,
         filter: String::new(),

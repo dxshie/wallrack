@@ -42,8 +42,12 @@ pub(in crate::cli) fn run(paths: &Paths, config: &Config, integration: &str) -> 
                 let elapsed = started.elapsed().as_secs_f32();
                 log::info!(
                     "{}{}{} indexed {}{}{} entries in {:.2}s",
-                    c.yellow, integ.name(), c.reset,
-                    c.green, n, c.reset,
+                    c.yellow,
+                    integ.name(),
+                    c.reset,
+                    c.green,
+                    n,
+                    c.reset,
                     elapsed,
                 );
                 // Pull native tags into the catalog so the picker can suggest
@@ -61,10 +65,7 @@ pub(in crate::cli) fn run(paths: &Paths, config: &Config, integration: &str) -> 
                 }
             }
             Err(err) => {
-                log::error!(
-                    "{}{}{} index failed: {err:#}",
-                    c.red, integ.name(), c.reset,
-                );
+                log::error!("{}{}{} index failed: {err:#}", c.red, integ.name(), c.reset,);
                 if in_rofi {
                     notify_send(&format!("{}: failed — {err}", integ.name()), 5000);
                 }

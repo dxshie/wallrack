@@ -127,10 +127,14 @@ impl Action {
             return Some(Self::BooruSearchHit { id: id.to_string() });
         }
         if let Some(tag) = s.strip_prefix("tagedit:remove:") {
-            return Some(Self::TagEditRemove { tag: tag.to_string() });
+            return Some(Self::TagEditRemove {
+                tag: tag.to_string(),
+            });
         }
         if let Some(tag) = s.strip_prefix("tagedit:pick:") {
-            return Some(Self::TagEditPick { tag: tag.to_string() });
+            return Some(Self::TagEditPick {
+                tag: tag.to_string(),
+            });
         }
         if let Some(rating) = s.strip_prefix("ratingedit:set:") {
             return Some(Self::RatingEditSet {
@@ -138,7 +142,9 @@ impl Action {
             });
         }
         if let Some(tag) = s.strip_prefix("tag:") {
-            return Some(Self::FilterTag { tag: tag.to_string() });
+            return Some(Self::FilterTag {
+                tag: tag.to_string(),
+            });
         }
         if let Some(reason) = s.strip_prefix("noop:") {
             return Some(Self::Noop {
@@ -170,7 +176,9 @@ mod tests {
                 id: "konachan:12345".into(),
             },
             Action::BooruCancelSearch,
-            Action::FilterTag { tag: "scenery".into() },
+            Action::FilterTag {
+                tag: "scenery".into(),
+            },
             Action::FilterTag { tag: String::new() },
             Action::TagEditBack,
             Action::TagEditAdd,
@@ -178,7 +186,9 @@ mod tests {
             Action::TagEditRemove { tag: "neon".into() },
             Action::TagEditPick { tag: "neon".into() },
             Action::RatingEditBack,
-            Action::RatingEditSet { rating: "Mature".into() },
+            Action::RatingEditSet {
+                rating: "Mature".into(),
+            },
             Action::RatingEditClear,
             Action::Noop {
                 reason: "empty".into(),

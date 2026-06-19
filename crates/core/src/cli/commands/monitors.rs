@@ -52,7 +52,9 @@ pub(in crate::cli) fn run(
                 .iter()
                 .map(|m| Row::Control {
                     label: m.clone(),
-                    action: Action::Raw { value: target.unwrap_or_default().to_string() },
+                    action: Action::Raw {
+                        value: target.unwrap_or_default().to_string(),
+                    },
                     icon: thumbs.get(m).cloned(),
                 })
                 .collect();
@@ -89,11 +91,7 @@ pub(in crate::cli) fn run(
 /// Per-monitor current-wallpaper thumbnails. WE tracks its own state
 /// (linux-wallpaperengine has no introspection), the other integrations rely
 /// on the backend's optional `current_image_cmd`.
-fn current_thumbs(
-    integration: &str,
-    paths: &Paths,
-    config: &Config,
-) -> HashMap<String, PathBuf> {
+fn current_thumbs(integration: &str, paths: &Paths, config: &Config) -> HashMap<String, PathBuf> {
     if integration == "we" {
         let state = wallpaper_engine::read_monitor_state(paths);
         if state.is_empty() {
@@ -110,7 +108,9 @@ fn current_thumbs(
             .entries
             .into_iter()
             .filter_map(|e| match e {
-                crate::entry::Entry::Project { workshop_id, thumb, .. } => Some((workshop_id, thumb)),
+                crate::entry::Entry::Project {
+                    workshop_id, thumb, ..
+                } => Some((workshop_id, thumb)),
                 _ => None,
             })
             .collect();

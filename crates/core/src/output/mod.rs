@@ -118,7 +118,11 @@ pub(crate) fn row_parts(row: &Row<'_>) -> RowParts {
                 payload,
             }
         }
-        Row::Control { label, action, icon } => RowParts {
+        Row::Control {
+            label,
+            action,
+            icon,
+        } => RowParts {
             display: label.clone(),
             icon: icon
                 .as_ref()
@@ -162,7 +166,11 @@ fn write_json<W: Write>(w: &mut W, rows: &[Row<'_>]) -> Result<()> {
                     "entry": entry,
                 })
             }
-            Row::Control { label, action, icon } => json!({
+            Row::Control {
+                label,
+                action,
+                icon,
+            } => json!({
                 "control": true,
                 "label": label,
                 "info": action.to_legacy_string(),

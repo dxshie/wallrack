@@ -22,8 +22,12 @@ pub const NAME: &str = "wallpaper";
 pub struct WallpaperIntegration;
 
 impl Integration for WallpaperIntegration {
-    fn name(&self) -> &'static str { NAME }
-    fn label(&self) -> &'static str { "Wallpapers" }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn label(&self) -> &'static str {
+        "Wallpapers"
+    }
 
     fn index(&self, paths: &Paths, config: &Config) -> Result<Index> {
         paths.ensure_integration(NAME)?;
@@ -54,7 +58,10 @@ impl Integration for WallpaperIntegration {
             .collect();
         progress.finish();
 
-        let index = Index { integration: NAME.to_string(), entries };
+        let index = Index {
+            integration: NAME.to_string(),
+            entries,
+        };
         crate::integrations::write_index(paths, &index)?;
         Ok(index)
     }
@@ -75,7 +82,11 @@ impl Integration for WallpaperIntegration {
     }
 
     fn watch_dirs(&self, config: &Config) -> Vec<PathBuf> {
-        config.wallpaper_dirs().into_iter().filter(|d| d.is_dir()).collect()
+        config
+            .wallpaper_dirs()
+            .into_iter()
+            .filter(|d| d.is_dir())
+            .collect()
     }
 
     fn backend<'a>(&self, config: &'a Config) -> &'a crate::config::BackendConfig {
@@ -90,9 +101,7 @@ impl Integration for WallpaperIntegration {
 /// Defaults shared by the two image-applying integrations.
 pub(crate) fn image_backend_defaults() -> crate::config::BackendConfig {
     crate::config::BackendConfig {
-        apply_cmd: Some(
-            r#"awww img "{{image}}" --transition-type center -o "{{monitor}}""#.into(),
-        ),
+        apply_cmd: Some(r#"awww img "{{image}}" --transition-type center -o "{{monitor}}""#.into()),
         monitors_cmd: Some(r#"hyprctl monitors | awk '/^Monitor / {print $2}'"#.into()),
         current_image_cmd: Some(
             r#"awww query | sed -nE 's/^[ :]*([^:]+):.*image: (.+)$/\1\t\2/p'"#.into(),
@@ -108,7 +117,10 @@ struct EntrySource {
 
 fn collect_images(root: &Path, out: &mut Vec<EntrySource>) {
     for img in walk_images(root, false) {
-        out.push(EntrySource { image: img, root: root.to_path_buf() });
+        out.push(EntrySource {
+            image: img,
+            root: root.to_path_buf(),
+        });
     }
 }
 

@@ -113,3 +113,46 @@ impl RatingOverrides {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Rating;
+
+    #[test]
+    fn as_str_round_trips_known_variants() {
+        for r in [
+            Rating::Mature,
+            Rating::Questionable,
+            Rating::Everyone,
+            Rating::All,
+        ] {
+            assert_eq!(Rating::parse_state(r.as_str()), r);
+        }
+    }
+
+    #[test]
+    fn parse_state_treats_unknown_and_empty_as_all() {
+        assert_eq!(Rating::parse_state(""), Rating::All);
+        assert_eq!(Rating::parse_state("nonsense"), Rating::All);
+        // Booru-native short codes don't auto-translate — they pass through to All.
+        // The booru ingest is responsible for mapping "s"/"q"/"e" before storing.
+        assert_eq!(Rating::parse_state("s"), Rating::All);
+    }
+
+    #[test]
+    fn next_cycles_through_all_variants() {
+        let cycle: Vec<Rating> = std::iter::successors(Some(Rating::All), |r| Some(r.next()))
+            .take(5)
+            .collect();
+        assert_eq!(
+            cycle,
+            vec![
+                Rating::All,
+                Rating::Mature,
+                Rating::Questionable,
+                Rating::Everyone,
+                Rating::All,
+            ]
+        );
+    }
+}

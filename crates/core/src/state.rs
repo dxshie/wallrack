@@ -61,11 +61,15 @@ impl State {
         let mut out = BTreeMap::new();
         for kv in self.tree.iter() {
             let Ok((k, v)) = kv else { continue };
-            let Ok(key) = std::str::from_utf8(&k) else { continue };
+            let Ok(key) = std::str::from_utf8(&k) else {
+                continue;
+            };
             if key.starts_with("__") || key == MIGRATION_SENTINEL {
                 continue;
             }
-            let Ok(value) = std::str::from_utf8(&v) else { continue };
+            let Ok(value) = std::str::from_utf8(&v) else {
+                continue;
+            };
             out.insert(key.to_string(), value.to_string());
         }
         out
@@ -206,7 +210,11 @@ pub enum ViewMode {
 
 impl ViewMode {
     pub fn parse(s: &str) -> Self {
-        if s == "favorites" { Self::Favorites } else { Self::All }
+        if s == "favorites" {
+            Self::Favorites
+        } else {
+            Self::All
+        }
     }
     pub fn favorites_only(self) -> bool {
         matches!(self, Self::Favorites)

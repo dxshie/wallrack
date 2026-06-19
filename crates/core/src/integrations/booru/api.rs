@@ -76,7 +76,10 @@ fn http_get_with_retries(
                 }
                 log::warn!(
                     "booru: attempt {}/{} failed ({:#}) — retrying in {:?}",
-                    attempt, total_attempts, err, backoff
+                    attempt,
+                    total_attempts,
+                    err,
+                    backoff
                 );
                 std::thread::sleep(backoff);
                 // Exponential, capped. Avoids unbounded waits on a dead host.
@@ -127,12 +130,12 @@ fn build_search_url(site: &BooruSite, tags: &str, page: u32, limit: u32) -> Stri
     let tags_enc = encode_query(tags);
     let auth = auth_query(site);
     match site.api_kind {
-        BooruApiKind::Moebooru => format!(
-            "{base}/post.json?tags={tags_enc}&page={page}&limit={limit}{auth}"
-        ),
-        BooruApiKind::Danbooru => format!(
-            "{base}/posts.json?tags={tags_enc}&page={page}&limit={limit}{auth}"
-        ),
+        BooruApiKind::Moebooru => {
+            format!("{base}/post.json?tags={tags_enc}&page={page}&limit={limit}{auth}")
+        }
+        BooruApiKind::Danbooru => {
+            format!("{base}/posts.json?tags={tags_enc}&page={page}&limit={limit}{auth}")
+        }
         BooruApiKind::Gelbooru => {
             // Gelbooru pages are 0-based via `pid`.
             let pid = page.saturating_sub(1);
@@ -140,5 +143,77 @@ fn build_search_url(site: &BooruSite, tags: &str, page: u32, limit: u32) -> Stri
                 "{base}/index.php?page=dapi&s=post&q=index&json=1&tags={tags_enc}&pid={pid}&limit={limit}{auth}"
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn site(kind: BooruApiKind, base: &str) -> BooruSite {
+        BooruSite {
+            base_url: base.into(),
+            api_kind: kind,
+            login: None,
+            api_key: None,
+            user_id: None,
+            password: None,
+            password_hash: None,
+            password_salt: None,
+        }
+    }
+
+    #[test]
+    fn build_search_url_moebooru_uses_post_json_and_one_based_page() {
+        let s = site(BooruApiKind::Moebooru, "https://konachan.com");
+        let url = build_search_url(&s, "scenery sky", 2, 50);
+        assert_eq!(
+            url,
+            "https://konachan.com/post.json?tags=scenery+sky&page=2&limit=50"
+        );
+    }
+
+    #[test]
+    fn build_search_url_danbooru_uses_posts_json() {
+        let s = site(BooruApiKind::Danbooru, "https://danbooru.donmai.us");
+        let url = build_search_url(&s, "cat", 1, 20);
+        assert_eq!(
+            url,
+            "https://danbooru.donmai.us/posts.json?tags=cat&page=1&limit=20"
+        );
+    }
+
+    #[test]
+    fn build_search_url_gelbooru_translates_page_to_zero_based_pid() {
+        let s = site(BooruApiKind::Gelbooru, "https://gelbooru.com");
+        let url = build_search_url(&s, "x", 3, 10);
+        assert!(url.contains("/index.php?page=dapi&s=post&q=index&json=1"));
+        assert!(url.contains("&tags=x"));
+        assert!(url.contains("&pid=2"));
+        assert!(url.contains("&limit=10"));
+    }
+
+    #[test]
+    fn build_search_url_gelbooru_clamps_page_zero_to_pid_zero() {
+        let s = site(BooruApiKind::Gelbooru, "https://gelbooru.com");
+        let url = build_search_url(&s, "x", 0, 10);
+        // saturating_sub keeps us at pid=0 instead of underflowing.
+        assert!(url.contains("&pid=0"));
+    }
+
+    #[test]
+    fn build_search_url_strips_trailing_slash_from_base() {
+        let s = site(BooruApiKind::Danbooru, "https://danbooru.donmai.us/");
+        let url = build_search_url(&s, "x", 1, 1);
+        assert!(url.starts_with("https://danbooru.donmai.us/posts.json"));
+    }
+
+    #[test]
+    fn build_search_url_appends_auth_suffix_when_configured() {
+        let mut s = site(BooruApiKind::Danbooru, "https://danbooru.donmai.us");
+        s.login = Some("alice".into());
+        s.api_key = Some("secret".into());
+        let url = build_search_url(&s, "x", 1, 1);
+        assert!(url.ends_with("&login=alice&api_key=secret"));
     }
 }

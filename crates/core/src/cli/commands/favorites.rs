@@ -19,8 +19,7 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: FavoritesCmd) -> Result<ExitCode> 
             integration,
             format,
         } => {
-            let integration =
-                resolve_integration(paths, integration.map(IntegrationArg::as_str))?;
+            let integration = resolve_integration(paths, integration.map(IntegrationArg::as_str))?;
             let ids = favorites.list(&integration);
             let stdout = io::stdout().lock();
             let mut out = std::io::BufWriter::new(stdout);
@@ -104,12 +103,12 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: FavoritesCmd) -> Result<ExitCode> 
             }
             Ok(ExitCode::SUCCESS)
         }
-        FavoritesCmd::Is { integration, id } => Ok(
-            if favorites.is_favorite(integration.as_str(), &id) {
+        FavoritesCmd::Is { integration, id } => {
+            Ok(if favorites.is_favorite(integration.as_str(), &id) {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::from(1)
-            },
-        ),
+            })
+        }
     }
 }

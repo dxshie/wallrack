@@ -39,17 +39,23 @@ pub trait Integration {
     fn name(&self) -> &'static str;
 
     /// User-facing label for the picker prompt.
-    fn label(&self) -> &'static str { self.name() }
+    fn label(&self) -> &'static str {
+        self.name()
+    }
 
     /// How this source builds its index. Defaults to `Scan`; the booru
     /// integration overrides to `Search`. Used by `wallrack index --all`
     /// to skip search-backed sources.
-    fn kind(&self) -> SourceKind { SourceKind::Scan }
+    fn kind(&self) -> SourceKind {
+        SourceKind::Scan
+    }
 
     /// Whether drilling into subfolders is meaningful for this integration.
     /// `false` for the WE integration: it applies the whole project, not
     /// individual files.
-    fn supports_drill(&self) -> bool { true }
+    fn supports_drill(&self) -> bool {
+        true
+    }
 
     /// Rebuild the index from disk. Writes the index to its cache file as a
     /// side-effect and returns the freshly built [`Index`].
@@ -63,7 +69,8 @@ pub trait Integration {
         if !file.exists() {
             return Err(anyhow!(
                 "{} index not built — run `wallrack index --integration={}` first",
-                self.name(), self.name()
+                self.name(),
+                self.name()
             ));
         }
         let raw = std::fs::read_to_string(&file)?;
@@ -72,7 +79,9 @@ pub trait Integration {
                 "failed to parse {} index ({}) — if this index was built by an \
                  older wallrack version, run `wallrack index --integration={}` \
                  to rebuild it in the new format",
-                self.name(), e, self.name(),
+                self.name(),
+                e,
+                self.name(),
             )
         })?;
         if let Ok(overrides) = crate::tags::TagOverrides::open(paths.store()) {
@@ -108,7 +117,10 @@ pub trait Integration {
         crate::config::BackendConfig {
             apply_cmd: user.apply_cmd.clone().or(defaults.apply_cmd),
             monitors_cmd: user.monitors_cmd.clone().or(defaults.monitors_cmd),
-            current_image_cmd: user.current_image_cmd.clone().or(defaults.current_image_cmd),
+            current_image_cmd: user
+                .current_image_cmd
+                .clone()
+                .or(defaults.current_image_cmd),
         }
     }
 }
@@ -125,9 +137,9 @@ pub fn all() -> Vec<Box<dyn Integration>> {
 pub fn by_name(name: &str) -> Result<Box<dyn Integration>> {
     match name {
         "wallpaper" => Ok(Box::new(wallpaper::WallpaperIntegration)),
-        "we_image" | "wallpaper_engine_image" => {
-            Ok(Box::new(wallpaper_engine_image::WallpaperEngineImageIntegration))
-        }
+        "we_image" | "wallpaper_engine_image" => Ok(Box::new(
+            wallpaper_engine_image::WallpaperEngineImageIntegration,
+        )),
         "we" | "wallpaper_engine" => Ok(Box::new(wallpaper_engine::WallpaperEngineIntegration)),
         "booru" => Ok(Box::new(booru::BooruIntegration)),
         other => Err(anyhow!("unknown integration: {other}")),

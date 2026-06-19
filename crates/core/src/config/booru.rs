@@ -164,12 +164,24 @@ impl BooruConfig {
     }
 }
 
-fn default_download_dir() -> String { "~/Pictures/booru".to_string() }
-fn default_default_site() -> String { "konachan".to_string() }
-fn default_per_page() -> u32 { 20 }
-fn default_request_timeout_secs() -> u64 { 30 }
-fn default_max_retries() -> u32 { 2 }
-fn default_retry_backoff_ms() -> u64 { 500 }
+fn default_download_dir() -> String {
+    "~/Pictures/booru".to_string()
+}
+fn default_default_site() -> String {
+    "konachan".to_string()
+}
+fn default_per_page() -> u32 {
+    20
+}
+fn default_request_timeout_secs() -> u64 {
+    30
+}
+fn default_max_retries() -> u32 {
+    2
+}
+fn default_retry_backoff_ms() -> u64 {
+    500
+}
 
 fn builtin_sites() -> BTreeMap<String, BooruSite> {
     let mut m = BTreeMap::new();
@@ -242,4 +254,99 @@ fn builtin_sites() -> BTreeMap<String, BooruSite> {
         },
     );
     m
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_user_site() -> BooruSite {
+        BooruSite {
+            base_url: String::new(),
+            api_kind: BooruApiKind::Moebooru,
+            login: None,
+            api_key: None,
+            user_id: None,
+            password: None,
+            password_hash: None,
+            password_salt: None,
+        }
+    }
+
+    #[test]
+    fn defaults_expose_all_builtin_sites() {
+        let sites = BooruConfig::default().resolved_sites();
+        for key in ["konachan", "yandere", "danbooru", "gelbooru", "safebooru"] {
+            assert!(sites.contains_key(key), "missing builtin {key}");
+        }
+    }
+
+    #[test]
+    fn user_login_overlays_onto_builtin_konachan_keeps_salt() {
+        let mut cfg = BooruConfig::default();
+        let mut user = empty_user_site();
+        user.login = Some("alice".into());
+        user.password = Some("hunter2".into());
+        cfg.sites.insert("konachan".into(), user);
+        let resolved = cfg.resolve_site("konachan").unwrap();
+        assert_eq!(resolved.login.as_deref(), Some("alice"));
+        assert_eq!(resolved.password.as_deref(), Some("hunter2"));
+        // Builtin base_url survives because user left it blank.
+        assert_eq!(resolved.base_url, "https://konachan.com");
+        assert!(
+            resolved
+                .password_salt
+                .as_deref()
+                .unwrap_or("")
+                .contains("Mupkids"),
+            "builtin moebooru salt should still be present"
+        );
+    }
+
+    #[test]
+    fn user_base_url_overrides_builtin_when_set() {
+        let mut cfg = BooruConfig::default();
+        let mut user = empty_user_site();
+        user.base_url = "https://mirror.konachan.example".into();
+        cfg.sites.insert("konachan".into(), user);
+        assert_eq!(
+            cfg.resolve_site("konachan").unwrap().base_url,
+            "https://mirror.konachan.example"
+        );
+    }
+
+    #[test]
+    fn unknown_user_site_is_added_alongside_builtins() {
+        let mut cfg = BooruConfig::default();
+        let mut user = empty_user_site();
+        user.base_url = "https://custom.example".into();
+        user.api_kind = BooruApiKind::Danbooru;
+        cfg.sites.insert("custom".into(), user);
+        let resolved = cfg.resolved_sites();
+        assert!(resolved.contains_key("konachan"));
+        let custom = resolved.get("custom").unwrap();
+        assert_eq!(custom.base_url, "https://custom.example");
+        assert_eq!(custom.api_kind, BooruApiKind::Danbooru);
+    }
+
+    #[test]
+    fn http_policy_clamps_timeout_to_at_least_one_second() {
+        let cfg = BooruConfig {
+            request_timeout_secs: 0,
+            ..BooruConfig::default()
+        };
+        assert_eq!(cfg.http_policy().timeout.as_secs(), 1);
+    }
+
+    #[test]
+    fn http_policy_carries_configured_retry_settings() {
+        let cfg = BooruConfig {
+            max_retries: 5,
+            retry_backoff_ms: 750,
+            ..BooruConfig::default()
+        };
+        let p = cfg.http_policy();
+        assert_eq!(p.max_retries, 5);
+        assert_eq!(p.retry_backoff.as_millis(), 750);
+    }
 }

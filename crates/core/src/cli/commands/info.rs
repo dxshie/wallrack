@@ -81,7 +81,10 @@ pub(in crate::cli) fn run(paths: &Paths, config: &Config) -> Result<ExitCode> {
 
     println!("{}wallpaper dirs:{}", c.bold, c.reset);
     for d in config.wallpaper_dirs() {
-        let count = wp_entries.iter().filter(|e| e.source().starts_with(&d)).count();
+        let count = wp_entries
+            .iter()
+            .filter(|e| e.source().starts_with(&d))
+            .count();
         println!(
             "  {}{:>6}{} entries  {}",
             c.green,

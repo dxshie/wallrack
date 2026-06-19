@@ -46,7 +46,7 @@ pub fn composite_key(integration: &str, rest: &str) -> Vec<u8> {
 /// the key isn't UTF-8 or doesn't contain the separator.
 pub fn split_composite(key: &[u8]) -> Option<(&str, &str)> {
     let s = std::str::from_utf8(key).ok()?;
-    s.split_once(char::from(KEY_SEP as char))
+    s.split_once(KEY_SEP as char)
 }
 
 /// Open the sled database at `cache_root/db` and run the one-shot migration
@@ -67,7 +67,9 @@ pub fn open(cache_root: &Path) -> Result<Db> {
 /// Read a serde-deserializable value from `tree` under `key`. Returns
 /// `Ok(None)` if the key is absent.
 pub fn read_json<T: DeserializeOwned>(tree: &Tree, key: &[u8]) -> Result<Option<T>> {
-    let Some(bytes) = tree.get(key)? else { return Ok(None) };
+    let Some(bytes) = tree.get(key)? else {
+        return Ok(None);
+    };
     let parsed = serde_json::from_slice(&bytes)
         .with_context(|| format!("decode value for key {:?}", String::from_utf8_lossy(key)))?;
     Ok(Some(parsed))
@@ -78,4 +80,45 @@ pub fn write_json<T: Serialize>(tree: &Tree, key: &[u8], value: &T) -> Result<()
     let bytes = serde_json::to_vec(value).context("serialize value for sled tree")?;
     tree.insert(key, bytes)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn composite_key_uses_nul_separator() {
+        let k = composite_key("booru", "konachan:42");
+        assert_eq!(k, b"booru\0konachan:42");
+    }
+
+    #[test]
+    fn composite_key_handles_empty_components() {
+        assert_eq!(composite_key("", "id"), b"\0id");
+        assert_eq!(composite_key("integration", ""), b"integration\0");
+    }
+
+    #[test]
+    fn split_composite_recovers_both_halves() {
+        let key = composite_key("we", "456");
+        assert_eq!(split_composite(&key), Some(("we", "456")));
+    }
+
+    #[test]
+    fn split_composite_returns_none_for_invalid_input() {
+        // No separator.
+        assert_eq!(split_composite(b"nosep"), None);
+        // Invalid UTF-8.
+        assert_eq!(split_composite(&[0xff, 0x00, b'x']), None);
+    }
+
+    #[test]
+    fn split_composite_stops_at_first_separator() {
+        // A rest containing NUL should still split on the first NUL only,
+        // so the integration half stays a clean string.
+        let k = composite_key("wp", "a\0b");
+        let (i, rest) = split_composite(&k).unwrap();
+        assert_eq!(i, "wp");
+        assert_eq!(rest, "a\0b");
+    }
 }

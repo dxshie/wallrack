@@ -26,12 +26,18 @@ pub const NAME: &str = "we";
 pub struct WallpaperEngineIntegration;
 
 impl Integration for WallpaperEngineIntegration {
-    fn name(&self) -> &'static str { NAME }
-    fn label(&self) -> &'static str { "WE" }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn label(&self) -> &'static str {
+        "WE"
+    }
 
     // linux-wallpaperengine applies the whole project, so there is no
     // meaningful "drill into a subfolder" operation.
-    fn supports_drill(&self) -> bool { false }
+    fn supports_drill(&self) -> bool {
+        false
+    }
 
     fn index(&self, paths: &Paths, config: &Config) -> Result<Index> {
         paths.ensure_integration(NAME)?;
@@ -57,14 +63,20 @@ impl Integration for WallpaperEngineIntegration {
             .filter_map(|dir| build_we_entry(dir, &thumbs_dir, thumb_size).ok())
             .collect();
 
-        let index = Index { integration: NAME.to_string(), entries };
+        let index = Index {
+            integration: NAME.to_string(),
+            entries,
+        };
         crate::integrations::write_index(paths, &index)?;
 
-        let notif_id = std::env::var("WALLRACK_NOTIF_ID").ok().filter(|s| !s.is_empty());
+        let notif_id = std::env::var("WALLRACK_NOTIF_ID")
+            .ok()
+            .filter(|s| !s.is_empty());
         let mut cmd = std::process::Command::new("notify-send");
-        cmd.arg("--expire-time=3000")
-           .arg("Wallrack")
-           .arg(format!("we index built — {} wallpapers", index.entries.len()));
+        cmd.arg("--expire-time=3000").arg("Wallrack").arg(format!(
+            "we index built — {} wallpapers",
+            index.entries.len()
+        ));
         if let Some(id) = notif_id {
             cmd.arg(format!("--replace-id={id}"));
         }
@@ -77,12 +89,23 @@ impl Integration for WallpaperEngineIntegration {
         if monitor.is_empty() {
             return Err(anyhow!("apply: no monitor given"));
         }
-        let Entry::Project { folder, workshop_id, .. } = entry else {
-            return Err(anyhow!("we apply called with a non-project entry: {}", entry.id()));
+        let Entry::Project {
+            folder,
+            workshop_id,
+            ..
+        } = entry
+        else {
+            return Err(anyhow!(
+                "we apply called with a non-project entry: {}",
+                entry.id()
+            ));
         };
 
         // Replace any running linux-wallpaperengine before relaunching.
-        let _ = Command::new("pkill").arg("-f").arg("linux-wallpaperengine").status();
+        let _ = Command::new("pkill")
+            .arg("-f")
+            .arg("linux-wallpaperengine")
+            .status();
         wait_we_gone();
 
         let folder_str = folder.to_string_lossy();
@@ -134,10 +157,13 @@ fn build_we_entry(dir: &Path, thumbs_dir: &Path, thumb_size: u32) -> Result<Entr
         .to_string();
     let body = std::fs::read_to_string(&project_json)
         .with_context(|| format!("read {}", project_json.display()))?;
-    let meta: ProjectJson = serde_json::from_str(&body)
-        .with_context(|| format!("parse {}", project_json.display()))?;
+    let meta: ProjectJson =
+        serde_json::from_str(&body).with_context(|| format!("parse {}", project_json.display()))?;
 
-    let title = meta.title.filter(|s| !s.is_empty()).unwrap_or_else(|| workshop_id.clone());
+    let title = meta
+        .title
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| workshop_id.clone());
     let rating = meta.contentrating.unwrap_or_default();
     let tags = meta.tags.unwrap_or_default();
     let preview = meta.preview.unwrap_or_default();
@@ -198,7 +224,9 @@ fn update_monitor_state(paths: &Paths, monitor: &str, workshop_id: &str) -> Resu
     } else {
         WeMonitorState::default()
     };
-    state.map.insert(monitor.to_string(), workshop_id.to_string());
+    state
+        .map
+        .insert(monitor.to_string(), workshop_id.to_string());
     let body = serde_json::to_vec_pretty(&state)?;
     atomic_write(&file, &body)
 }

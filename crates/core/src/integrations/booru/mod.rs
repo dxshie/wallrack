@@ -34,16 +34,24 @@ pub const NAME: &str = "booru";
 pub struct BooruIntegration;
 
 impl Integration for BooruIntegration {
-    fn name(&self) -> &'static str { NAME }
-    fn label(&self) -> &'static str { "Booru" }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn label(&self) -> &'static str {
+        "Booru"
+    }
 
     // Booru is search-driven — there's no directory to scan, just the cached
     // result of the last `wallrack booru search` call.
-    fn kind(&self) -> SourceKind { SourceKind::Search }
+    fn kind(&self) -> SourceKind {
+        SourceKind::Search
+    }
 
     // Booru entries are individual posts — drilling into a subfolder isn't
     // meaningful, and the existing drill UI would only confuse the picker.
-    fn supports_drill(&self) -> bool { false }
+    fn supports_drill(&self) -> bool {
+        false
+    }
 
     /// "Indexing" a booru means reading back whatever the last `booru search`
     /// wrote. This lets `wallrack index --integration=all` skip the booru
@@ -69,7 +77,10 @@ impl Integration for BooruIntegration {
                 }
             }
         }
-        let empty = Index { integration: NAME.to_string(), entries: Vec::new() };
+        let empty = Index {
+            integration: NAME.to_string(),
+            entries: Vec::new(),
+        };
         crate::integrations::write_index(paths, &empty)?;
         Ok(empty)
     }
@@ -131,7 +142,9 @@ impl Integration for BooruIntegration {
         Ok(())
     }
 
-    fn watch_dirs(&self, _config: &Config) -> Vec<PathBuf> { Vec::new() }
+    fn watch_dirs(&self, _config: &Config) -> Vec<PathBuf> {
+        Vec::new()
+    }
 
     fn backend<'a>(&self, _config: &'a Config) -> &'a BackendConfig {
         // The booru integration has no [booru.backend] section — we never

@@ -31,7 +31,9 @@ struct Cli {
 }
 
 pub fn run() -> Result<ExitCode> {
-    let matches = Cli::command().styles(style::make_clap_styles()).get_matches();
+    let matches = Cli::command()
+        .styles(style::make_clap_styles())
+        .get_matches();
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     let paths = Paths::discover()?;
     let config = Config::load(&paths)?;
@@ -61,11 +63,10 @@ pub fn run() -> Result<ExitCode> {
             },
         ),
         Cmd::View { format } => commands::view::run(&paths, format),
-        Cmd::Tags { integration, format } => commands::tags::run(
-            &paths,
-            integration.map(IntegrationArg::as_str),
+        Cmd::Tags {
+            integration,
             format,
-        ),
+        } => commands::tags::run(&paths, integration.map(IntegrationArg::as_str), format),
         Cmd::Tag { cmd } => commands::tag::run(&paths, cmd),
         Cmd::Rating { cmd } => commands::rating::run(&paths, cmd),
         Cmd::Favorites { cmd } => commands::favorites::run(&paths, cmd),

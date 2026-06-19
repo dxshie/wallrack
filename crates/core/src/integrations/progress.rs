@@ -32,7 +32,8 @@ const NOTIFY_THROTTLE_MS: u128 = 1_000;
 
 impl Progress {
     pub fn new(label: &'static str, total: usize) -> Self {
-        let initial_notif_id = std::env::var("WALLRACK_NOTIF_ID").ok()
+        let initial_notif_id = std::env::var("WALLRACK_NOTIF_ID")
+            .ok()
             .filter(|s| !s.is_empty());
         Self {
             label,
@@ -51,7 +52,9 @@ impl Progress {
         let n = self.done.fetch_add(1, Ordering::Relaxed) + 1;
         if !self.tty {
             // try_lock: contending workers skip their tick rather than block.
-            let Ok(mut last_notif) = self.last_notif.try_lock() else { return };
+            let Ok(mut last_notif) = self.last_notif.try_lock() else {
+                return;
+            };
             let need_first = !self.rendered.load(Ordering::Relaxed);
             if !need_first && last_notif.elapsed().as_millis() < NOTIFY_THROTTLE_MS {
                 return;
@@ -64,7 +67,9 @@ impl Progress {
         }
         // try_lock so contending workers drop their tick instead of blocking the
         // par_iter; the next worker past the throttle window will pick it up.
-        let Ok(mut last) = self.last_frame.try_lock() else { return };
+        let Ok(mut last) = self.last_frame.try_lock() else {
+            return;
+        };
         let need_first = !self.rendered.load(Ordering::Relaxed);
         if !need_first && last.elapsed().as_millis() < FRAME_MS {
             return;
@@ -76,7 +81,10 @@ impl Progress {
     }
 
     fn notify_progress(&self, n: usize, done: bool) {
-        let pct = if self.total == 0 { 100 } else { (n * 100 / self.total).min(100) };
+        let pct = (n * 100)
+            .checked_div(self.total)
+            .map(|p| p.min(100))
+            .unwrap_or(100);
         let body = if done {
             format!("{} index built — {} wallpapers", self.label, n)
         } else {
@@ -87,9 +95,9 @@ impl Progress {
         let mut notif_id = self.notif_id.lock().unwrap();
         let mut cmd = Command::new("notify-send");
         cmd.arg("--print-id")
-           .arg(format!("--expire-time={expire_ms}"))
-           .arg("Wallrack")
-           .arg(&body);
+            .arg(format!("--expire-time={expire_ms}"))
+            .arg("Wallrack")
+            .arg(&body);
         if let Some(ref id) = *notif_id {
             cmd.arg(format!("--replace-id={id}"));
         }

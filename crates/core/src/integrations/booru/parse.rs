@@ -188,3 +188,208 @@ fn ensure_scheme(url: String) -> String {
         url
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn moebooru_parses_minimal_post() {
+        let body = r#"[
+            {
+                "id": 42,
+                "tags": "scenery sky blue",
+                "rating": "s",
+                "file_url": "https://konachan.com/image/abc.jpg",
+                "sample_url": "https://konachan.com/sample/abc.jpg",
+                "preview_url": "https://konachan.com/preview/abc.jpg",
+                "width": 1920,
+                "height": 1080
+            }
+        ]"#;
+        let posts = parse_search("konachan", BooruApiKind::Moebooru, body).unwrap();
+        assert_eq!(posts.len(), 1);
+        let p = &posts[0];
+        assert_eq!(p.id, 42);
+        assert_eq!(p.site, "konachan");
+        assert_eq!(p.tags, vec!["scenery", "sky", "blue"]);
+        assert_eq!(p.rating, "s");
+        assert_eq!(p.file_url, "https://konachan.com/image/abc.jpg");
+        assert_eq!(
+            p.preview_url.as_deref(),
+            Some("https://konachan.com/preview/abc.jpg")
+        );
+        assert_eq!(p.width, 1920);
+        assert_eq!(p.height, 1080);
+    }
+
+    #[test]
+    fn moebooru_filters_posts_with_empty_file_url() {
+        let body = r#"[
+            {"id": 1, "tags": "a", "file_url": ""},
+            {"id": 2, "tags": "b", "file_url": "https://example.com/x.jpg"}
+        ]"#;
+        let posts = parse_search("konachan", BooruApiKind::Moebooru, body).unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].id, 2);
+    }
+
+    #[test]
+    fn moebooru_falls_back_to_sample_url_when_no_preview() {
+        let body = r#"[
+            {
+                "id": 1,
+                "tags": "x",
+                "file_url": "https://example.com/x.jpg",
+                "sample_url": "https://example.com/sample.jpg"
+            }
+        ]"#;
+        let posts = parse_search("yandere", BooruApiKind::Moebooru, body).unwrap();
+        assert_eq!(
+            posts[0].preview_url.as_deref(),
+            Some("https://example.com/sample.jpg")
+        );
+    }
+
+    #[test]
+    fn moebooru_promotes_scheme_relative_urls_to_https() {
+        let body = r#"[
+            {
+                "id": 1,
+                "tags": "x",
+                "file_url": "//cdn.example.com/x.jpg",
+                "preview_url": "//cdn.example.com/p.jpg"
+            }
+        ]"#;
+        let posts = parse_search("konachan", BooruApiKind::Moebooru, body).unwrap();
+        assert_eq!(posts[0].file_url, "https://cdn.example.com/x.jpg");
+        assert_eq!(
+            posts[0].preview_url.as_deref(),
+            Some("https://cdn.example.com/p.jpg")
+        );
+    }
+
+    #[test]
+    fn danbooru_parses_tag_string_field() {
+        let body = r#"[
+            {
+                "id": 7,
+                "tag_string": "red blue green",
+                "rating": "g",
+                "file_url": "https://cdn.donmai.us/full.jpg",
+                "preview_file_url": "https://cdn.donmai.us/preview.jpg",
+                "image_width": 800,
+                "image_height": 600
+            }
+        ]"#;
+        let posts = parse_search("danbooru", BooruApiKind::Danbooru, body).unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].tags, vec!["red", "blue", "green"]);
+        assert_eq!(posts[0].file_url, "https://cdn.donmai.us/full.jpg");
+        assert_eq!(posts[0].width, 800);
+        assert_eq!(posts[0].height, 600);
+    }
+
+    #[test]
+    fn danbooru_falls_back_to_large_file_url_when_full_missing() {
+        let body = r#"[
+            {
+                "id": 8,
+                "tag_string": "x",
+                "large_file_url": "https://cdn.donmai.us/large.jpg"
+            }
+        ]"#;
+        let posts = parse_search("danbooru", BooruApiKind::Danbooru, body).unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].file_url, "https://cdn.donmai.us/large.jpg");
+    }
+
+    #[test]
+    fn danbooru_drops_posts_without_any_image_url() {
+        let body = r#"[
+            {"id": 1, "tag_string": "x"},
+            {"id": 2, "tag_string": "y", "file_url": "https://e.com/y.jpg"}
+        ]"#;
+        let posts = parse_search("danbooru", BooruApiKind::Danbooru, body).unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].id, 2);
+    }
+
+    #[test]
+    fn danbooru_error_object_returns_err_instead_of_empty() {
+        let body = r#"{"success": false, "message": "bad tag"}"#;
+        let err = parse_search("danbooru", BooruApiKind::Danbooru, body).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("danbooru returned an error object")
+        );
+    }
+
+    #[test]
+    fn gelbooru_parses_envelope_with_post_array() {
+        let body = r#"{
+            "@attributes": {"count": 1},
+            "post": [
+                {
+                    "id": 99,
+                    "tags": "alpha beta",
+                    "rating": "general",
+                    "file_url": "https://gelbooru.com/full.jpg",
+                    "sample_url": "https://gelbooru.com/sample.jpg",
+                    "preview_url": "https://gelbooru.com/preview.jpg",
+                    "width": 100,
+                    "height": 200
+                }
+            ]
+        }"#;
+        let posts = parse_search("gelbooru", BooruApiKind::Gelbooru, body).unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].id, 99);
+        assert_eq!(posts[0].tags, vec!["alpha", "beta"]);
+        // Sample URL preferred over preview when present and non-empty.
+        assert_eq!(
+            posts[0].preview_url.as_deref(),
+            Some("https://gelbooru.com/sample.jpg")
+        );
+    }
+
+    #[test]
+    fn gelbooru_parses_bare_array_for_safebooru_shape() {
+        let body = r#"[
+            {
+                "id": 5,
+                "tags": "x",
+                "file_url": "https://safebooru.org/x.jpg"
+            }
+        ]"#;
+        let posts = parse_search("safebooru", BooruApiKind::Gelbooru, body).unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].id, 5);
+    }
+
+    #[test]
+    fn gelbooru_treats_empty_body_as_no_posts() {
+        let posts = parse_search("gelbooru", BooruApiKind::Gelbooru, "").unwrap();
+        assert!(posts.is_empty());
+    }
+
+    #[test]
+    fn gelbooru_falls_back_to_preview_when_sample_empty() {
+        let body = r#"{
+            "post": [
+                {
+                    "id": 1,
+                    "tags": "x",
+                    "file_url": "https://gelbooru.com/full.jpg",
+                    "sample_url": "",
+                    "preview_url": "https://gelbooru.com/preview.jpg"
+                }
+            ]
+        }"#;
+        let posts = parse_search("gelbooru", BooruApiKind::Gelbooru, body).unwrap();
+        assert_eq!(
+            posts[0].preview_url.as_deref(),
+            Some("https://gelbooru.com/preview.jpg")
+        );
+    }
+}

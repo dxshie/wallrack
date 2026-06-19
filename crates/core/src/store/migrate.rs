@@ -20,27 +20,27 @@ pub fn run(cache_root: &Path, db: &Db) -> Result<()> {
     migrate_one(
         cache_root.join("favorites.json").as_path(),
         db.open_tree(TREE_FAVORITES)?,
-        |tree, raw| import_favorites(tree, raw),
+        import_favorites,
     )?;
     migrate_one(
         cache_root.join("tags.json").as_path(),
         db.open_tree(TREE_TAG_OVERRIDES)?,
-        |tree, raw| import_tag_overrides(tree, raw),
+        import_tag_overrides,
     )?;
     migrate_one(
         cache_root.join("tag_catalog.json").as_path(),
         db.open_tree(TREE_TAG_CATALOG)?,
-        |tree, raw| import_tag_catalog(tree, raw),
+        import_tag_catalog,
     )?;
     migrate_one(
         cache_root.join("rating_overrides.json").as_path(),
         db.open_tree(TREE_RATING_OVERRIDES)?,
-        |tree, raw| import_rating_overrides(tree, raw),
+        import_rating_overrides,
     )?;
     migrate_one(
         cache_root.join("state.json").as_path(),
         db.open_tree(TREE_STATE)?,
-        |tree, raw| import_state(tree, raw),
+        import_state,
     )?;
     Ok(())
 }

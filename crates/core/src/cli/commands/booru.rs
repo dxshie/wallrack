@@ -29,6 +29,7 @@ pub(in crate::cli) fn run(paths: &Paths, config: &Config, cmd: BooruCmd) -> Resu
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_search(
     paths: &Paths,
     config: &Config,
@@ -91,7 +92,9 @@ fn run_search(
             entry: e,
             favorite: favorites.is_favorite(e.integration(), e.id()),
             label: None,
-            action: Some(Action::BooruSearchHit { id: e.id().to_string() }),
+            action: Some(Action::BooruSearchHit {
+                id: e.id().to_string(),
+            }),
         })
         .collect();
     let hints = ViewHints {

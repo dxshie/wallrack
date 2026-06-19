@@ -39,7 +39,11 @@ pub fn save_search_as_index(
     std::fs::create_dir_all(&thumbs_dir)
         .with_context(|| format!("create {}", thumbs_dir.display()))?;
 
-    let client = if cache_thumbs { Some(build_client()?) } else { None };
+    let client = if cache_thumbs {
+        Some(build_client()?)
+    } else {
+        None
+    };
 
     let entries: Vec<Entry> = posts
         .iter()
@@ -110,15 +114,14 @@ pub(super) fn download_to_file(url: &str, dest: &Path) -> Result<u64> {
         return Err(anyhow!("GET {url} returned HTTP {status}"));
     }
     if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("create {}", parent.display()))?;
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     let tmp = dest.with_extension(format!(
         "{}.part",
         dest.extension().and_then(|s| s.to_str()).unwrap_or("dl")
     ));
-    let mut file = std::fs::File::create(&tmp)
-        .with_context(|| format!("create {}", tmp.display()))?;
+    let mut file =
+        std::fs::File::create(&tmp).with_context(|| format!("create {}", tmp.display()))?;
 
     let total = resp.content_length();
     let label = dest
@@ -366,4 +369,3 @@ fn persist_last_search(paths: &Paths, site_key: &str, tags: &str, page: u32) -> 
     state.set(keys::BOORU_PAGE, page.to_string())?;
     Ok(())
 }
-
