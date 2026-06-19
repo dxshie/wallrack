@@ -175,21 +175,34 @@ pub(super) enum FavoritesCmd {
         #[arg(long, default_value = "json")]
         format: Format,
     },
+    /// Add a favorite. Pass either a positional `id` (single entry) or
+    /// `--folder PATH` (favorites every entry directly under the folder).
     Add {
         #[arg(long, value_enum)]
         integration: IntegrationArg,
-        id: String,
+        id: Option<String>,
+        #[arg(long, conflicts_with = "id")]
+        folder: Option<String>,
     },
+    /// Remove a favorite. `--folder` removes the favorite mark from every
+    /// entry directly under the folder.
     Remove {
         #[arg(long, value_enum)]
         integration: IntegrationArg,
-        id: String,
+        id: Option<String>,
+        #[arg(long, conflicts_with = "id")]
+        folder: Option<String>,
     },
-    /// Toggle favorite. Prints "added" or "removed".
+    /// Toggle favorite. Single-entry form prints "added" or "removed".
+    /// `--folder` mode: when every entry in the folder is already a
+    /// favorite, removes the mark from all of them; otherwise favorites the
+    /// ones that aren't already (collective toggle).
     Toggle {
         #[arg(long, value_enum)]
         integration: IntegrationArg,
-        id: String,
+        id: Option<String>,
+        #[arg(long, conflicts_with = "id")]
+        folder: Option<String>,
     },
     /// Test whether an id is favorited. Exit 0 if yes, 1 if no.
     Is {
@@ -201,21 +214,28 @@ pub(super) enum FavoritesCmd {
 
 #[derive(Subcommand)]
 pub(super) enum TagCmd {
-    /// Add a tag to the effective set for this entry (and to the catalog).
+    /// Add a tag. Pass `--id ID` for a single entry, or `--folder PATH` to
+    /// fan the add out across every entry directly under the folder.
     Add {
         #[arg(long, value_enum)]
         integration: IntegrationArg,
         #[arg(long)]
-        id: String,
+        id: Option<String>,
+        #[arg(long, conflicts_with = "id")]
+        folder: Option<String>,
         tag: String,
     },
-    /// Remove a tag from THIS entry (cancels a prior add or hides a native
-    /// tag). Use `tag delete` to drop a tag from every entry at once.
+    /// Remove a tag. Single-entry form cancels a prior add or hides a
+    /// native tag. `--folder` mode applies the remove to every entry under
+    /// the folder that currently carries the tag. Use `tag delete` to drop
+    /// a tag from the entire catalog.
     Remove {
         #[arg(long, value_enum)]
         integration: IntegrationArg,
         #[arg(long)]
-        id: String,
+        id: Option<String>,
+        #[arg(long, conflicts_with = "id")]
+        folder: Option<String>,
         tag: String,
     },
     /// Replace the effective tag set with the given list.
@@ -229,12 +249,15 @@ pub(super) enum TagCmd {
         #[arg(long = "tag")]
         tags: Vec<String>,
     },
-    /// Drop any user overrides for this entry; falls back to native tags.
+    /// Drop any user overrides. `--folder` clears overrides for every
+    /// entry directly under the folder.
     Clear {
         #[arg(long, value_enum)]
         integration: IntegrationArg,
         #[arg(long)]
-        id: String,
+        id: Option<String>,
+        #[arg(long, conflicts_with = "id")]
+        folder: Option<String>,
     },
     /// Print the entry's effective tags (one per line).
     Show {
@@ -271,21 +294,28 @@ pub(super) enum TagCmd {
 
 #[derive(Subcommand)]
 pub(super) enum RatingCmd {
-    /// Pin a rating on this entry.
+    /// Pin a rating. `--folder` writes the same rating override onto every
+    /// entry directly under the folder.
     Set {
         #[arg(long, value_enum)]
         integration: IntegrationArg,
         #[arg(long)]
-        id: String,
+        id: Option<String>,
+        #[arg(long, conflicts_with = "id")]
+        folder: Option<String>,
         #[arg(value_enum, ignore_case = true)]
         rating: crate::rating::Rating,
     },
-    /// Drop the override; the entry falls back to its native rating.
+    /// Drop the override. `--folder` clears the override on every entry
+    /// directly under the folder, leaving each entry to fall back to its
+    /// native rating.
     Clear {
         #[arg(long, value_enum)]
         integration: IntegrationArg,
         #[arg(long)]
-        id: String,
+        id: Option<String>,
+        #[arg(long, conflicts_with = "id")]
+        folder: Option<String>,
     },
     /// Print the effective rating for this entry (empty if none).
     Show {

@@ -11,7 +11,9 @@ use crate::paths::Paths;
 
 use super::super::args::{IntegrationArg, TagCmd};
 use super::super::format_list::write_string_list;
-use super::super::state_helpers::resolve_integration;
+use super::super::state_helpers::{
+    TargetSpec, entries_in_folder, require_one_target, resolve_integration,
+};
 
 pub(in crate::cli) fn run(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
     let overrides = crate::tags::TagOverrides::open(paths.store())?;
@@ -20,9 +22,23 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
         TagCmd::Add {
             integration,
             id,
+            folder,
             tag,
         } => {
-            overrides.add(integration.as_str(), &id, &tag)?;
+            match require_one_target(id.as_deref(), folder.as_deref())? {
+                TargetSpec::Id(id) => {
+                    overrides.add(integration.as_str(), id, &tag)?;
+                }
+                TargetSpec::Folder(folder) => {
+                    let entries = entries_in_folder(paths, integration.as_str(), folder)?;
+                    if entries.is_empty() {
+                        return Err(anyhow!("no entries under folder {folder}"));
+                    }
+                    for e in &entries {
+                        overrides.add(integration.as_str(), e.id(), &tag)?;
+                    }
+                }
+            }
             // Newly-added tags should be immediately suggestable in the
             // picker, so reflect them in the catalog right away rather than
             // waiting for the next re-index.
@@ -31,9 +47,25 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
         TagCmd::Remove {
             integration,
             id,
+            folder,
             tag,
         } => {
-            overrides.remove(integration.as_str(), &id, &tag)?;
+            match require_one_target(id.as_deref(), folder.as_deref())? {
+                TargetSpec::Id(id) => {
+                    overrides.remove(integration.as_str(), id, &tag)?;
+                }
+                TargetSpec::Folder(folder) => {
+                    // Only entries that actually carry the tag get a removal
+                    // marker — avoids polluting the overrides store with
+                    // "remove" records for tags that were never there.
+                    let entries = entries_in_folder(paths, integration.as_str(), folder)?;
+                    for e in &entries {
+                        if e.tags().iter().any(|t| t == &tag) {
+                            overrides.remove(integration.as_str(), e.id(), &tag)?;
+                        }
+                    }
+                }
+            }
         }
         TagCmd::Set {
             integration,
@@ -73,9 +105,21 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: TagCmd) -> Result<ExitCode> {
             overrides.set(integration.as_str(), &id, &tags, &native)?;
             catalog.extend(integration.as_str(), tags.iter().cloned());
         }
-        TagCmd::Clear { integration, id } => {
-            overrides.clear(integration.as_str(), &id)?;
-        }
+        TagCmd::Clear {
+            integration,
+            id,
+            folder,
+        } => match require_one_target(id.as_deref(), folder.as_deref())? {
+            TargetSpec::Id(id) => {
+                overrides.clear(integration.as_str(), id)?;
+            }
+            TargetSpec::Folder(folder) => {
+                let entries = entries_in_folder(paths, integration.as_str(), folder)?;
+                for e in &entries {
+                    overrides.clear(integration.as_str(), e.id())?;
+                }
+            }
+        },
         TagCmd::Show { integration, id } => {
             let integ = integrations::by_name(integration.as_str())?;
             let idx = integ.read_index(paths)?;

@@ -50,8 +50,10 @@ picker_mode=$(wallrack state get picker_mode 2>/dev/null || echo wallpaper)
 tag_mode=$(wallrack state get tag_mode 2>/dev/null || echo "")
 drill_path=$(wallrack state get drill_path 2>/dev/null || echo "")
 tag_edit_target=$(wallrack state get tag_edit_target 2>/dev/null || echo "")
+tag_edit_folder=$(wallrack state get tag_edit_folder 2>/dev/null || echo "")
 tag_add_mode=$(wallrack state get tag_add_mode 2>/dev/null || echo "")
 rating_edit_target=$(wallrack state get rating_edit_target 2>/dev/null || echo "")
+rating_edit_folder=$(wallrack state get rating_edit_folder 2>/dev/null || echo "")
 booru_search_mode=$(wallrack state get booru_search_mode 2>/dev/null || echo "")
 
 # Trace every invocation so the booru search flow can be reconstructed
@@ -185,50 +187,6 @@ target_id_from_highlight() {
   fi
 }
 
-# Render the per-entry tag editor as rofi script output. The active target
-# lives in state (`tag_edit_target`) so it survives the rofi → script
-# round-trip across selections.
-render_tag_editor() {
-  local target label
-  target=$(wallrack state get tag_edit_target 2>/dev/null || echo "")
-  if [[ -z "$target" ]]; then
-    wallrack view
-    return
-  fi
-  label="${target##*/}"
-
-  printf '\0prompt\x1fTags: %s\n' "$label"
-  printf '\0use-hot-keys\x1ftrue\n'
-  printf '\0message\x1fEnter to remove tag | "+ Add" prompts for a new tag | ← Back\n'
-  printf '← Back\0info\x1ftagedit:back\n'
-  printf '+ Add tag…\0info\x1ftagedit:add\n'
-  while IFS= read -r tag; do
-    [[ -z "$tag" ]] && continue
-    printf '%s\0info\x1ftagedit:remove:%s\n' "$tag" "$tag"
-  done < <(wallrack tag show --integration="$picker_mode" --id="$target" 2>/dev/null)
-}
-
-# Render the "add tag" prompt inside the running rofi. Rofi refuses to
-# launch a nested instance, so instead of spawning `rofi -dmenu` we render
-# a script-mode view: a Cancel row, every tag the catalog knows about for
-# this integration, and rely on rofi's allow-custom default for entirely
-# new tags. Selecting an existing tag row passes its name through as
-# $selection just like typing one.
-render_add_tag_prompt() {
-  local target label tag
-  target=$(wallrack state get tag_edit_target 2>/dev/null || echo "")
-  label="${target##*/}"
-  printf '\0prompt\x1fAdd tag to %s\n' "$label"
-  printf '\0use-hot-keys\x1ftrue\n'
-  printf '\0message\x1fPick a known tag or type a new one — Enter to add, Esc to cancel\n'
-  printf '\0no-custom\x1ffalse\n'
-  printf '← Cancel\0info\x1ftagedit:cancel\n'
-  while IFS= read -r tag; do
-    [[ -z "$tag" ]] && continue
-    printf '%s\n' "$tag"
-  done < <(wallrack tag available --integration="$picker_mode" --format=rofi 2>/dev/null)
-}
-
 # ─── apply wrappers ──────────────────────────────────────────────────────────
 
 apply_image() {
@@ -277,13 +235,15 @@ if [[ "$tag_add_mode" == "on" && ( "$ROFI_RETV" == "1" || "$ROFI_RETV" == "2" ) 
   wallrack state unset tag_add_mode >/dev/null
   new_tag=$(printf '%s' "$selection" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   if [[ -z "$new_tag" || "$new_tag" == "← Cancel" ]]; then
-    render_tag_editor
+    wallrack view
     exit 0
   fi
-  if [[ -n "$tag_edit_target" ]]; then
+  if [[ -n "$tag_edit_folder" ]]; then
+    wallrack tag add --integration="$picker_mode" --folder="$tag_edit_folder" "$new_tag" >/dev/null
+  elif [[ -n "$tag_edit_target" ]]; then
     wallrack tag add --integration="$picker_mode" --id="$tag_edit_target" "$new_tag" >/dev/null
   fi
-  render_tag_editor
+  wallrack view
   exit 0
 fi
 
@@ -323,39 +283,53 @@ case "$ROFI_RETV" in
 
     # Rating editor: when a target is staked out, selections drive the
     # editor rather than the main picker. Same priority concern as the tag
-    # editor — has to come before the image: routing.
-    if [[ -n "$rating_edit_target" ]]; then
-      label="${rating_edit_target##*/}"
+    # editor — has to come before the image: routing. Folder mode fans the
+    # edit across every entry directly under the selected folder.
+    if [[ -n "$rating_edit_target" || -n "$rating_edit_folder" ]]; then
+      if [[ -n "$rating_edit_folder" ]]; then
+        rating_target_flag=(--folder="$rating_edit_folder")
+        rating_label="${rating_edit_folder%/}"
+        rating_label="${rating_label##*/}/"
+        rating_scope="folder $rating_label"
+      else
+        rating_target_flag=(--id="$rating_edit_target")
+        rating_label="${rating_edit_target##*/}"
+        rating_scope="$rating_label"
+      fi
       case "$ROFI_INFO" in
         ratingedit:back)
           wallrack state unset rating_edit_target >/dev/null
+          wallrack state unset rating_edit_folder >/dev/null
           wallrack view
           exit 0
           ;;
         ratingedit:set:*)
           rating="${ROFI_INFO#ratingedit:set:}"
-          if wallrack rating set --integration="$picker_mode" --id="$rating_edit_target" "$rating" >/dev/null 2>&1; then
-            notify-send "${NOTIFY_OPTIONS[@]}" "Rating set: $rating — $label"
+          if wallrack rating set --integration="$picker_mode" "${rating_target_flag[@]}" "$rating" >/dev/null 2>&1; then
+            notify-send "${NOTIFY_OPTIONS[@]}" "Rating set: $rating — $rating_scope"
           else
-            notify-send -u critical "${NOTIFY_OPTIONS[@]}" "Failed to set rating on $label"
+            notify-send -u critical "${NOTIFY_OPTIONS[@]}" "Failed to set rating on $rating_scope"
           fi
           wallrack state unset rating_edit_target >/dev/null
+          wallrack state unset rating_edit_folder >/dev/null
           wallrack view
           exit 0
           ;;
         ratingedit:clear)
-          if wallrack rating clear --integration="$picker_mode" --id="$rating_edit_target" >/dev/null 2>&1; then
-            notify-send "${NOTIFY_OPTIONS[@]}" "Rating override cleared: $label"
+          if wallrack rating clear --integration="$picker_mode" "${rating_target_flag[@]}" >/dev/null 2>&1; then
+            notify-send "${NOTIFY_OPTIONS[@]}" "Rating override cleared: $rating_scope"
           else
-            notify-send -u critical "${NOTIFY_OPTIONS[@]}" "Failed to clear rating on $label"
+            notify-send -u critical "${NOTIFY_OPTIONS[@]}" "Failed to clear rating on $rating_scope"
           fi
           wallrack state unset rating_edit_target >/dev/null
+          wallrack state unset rating_edit_folder >/dev/null
           wallrack view
           exit 0
           ;;
         *)
           # Stray selection (e.g. user typed something). Drop back to view.
           wallrack state unset rating_edit_target >/dev/null
+          wallrack state unset rating_edit_folder >/dev/null
           wallrack view
           exit 0
           ;;
@@ -367,27 +341,34 @@ case "$ROFI_RETV" in
     # Tag editor: when a target is staked out, selections drive the editor
     # rather than the main picker. Has to come before the normal routing so
     # `image:` rows underneath the editor don't fire the apply flow.
-    if [[ -n "$tag_edit_target" ]]; then
+    if [[ -n "$tag_edit_target" || -n "$tag_edit_folder" ]]; then
+      if [[ -n "$tag_edit_folder" ]]; then
+        tag_target_flag=(--folder="$tag_edit_folder")
+      else
+        tag_target_flag=(--id="$tag_edit_target")
+      fi
       case "$ROFI_INFO" in
         tagedit:back)
           wallrack state unset tag_edit_target >/dev/null
+          wallrack state unset tag_edit_folder >/dev/null
           wallrack view
           exit 0
           ;;
         tagedit:add)
           wallrack state set tag_add_mode on >/dev/null
-          render_add_tag_prompt
+          wallrack view
           exit 0
           ;;
         tagedit:remove:*)
           tag="${ROFI_INFO#tagedit:remove:}"
-          wallrack tag remove --integration="$picker_mode" --id="$tag_edit_target" "$tag" >/dev/null
-          render_tag_editor
+          wallrack tag remove --integration="$picker_mode" "${tag_target_flag[@]}" "$tag" >/dev/null
+          wallrack view
           exit 0
           ;;
         *)
           # Stray selection (shouldn't happen). Drop back to normal view.
           wallrack state unset tag_edit_target >/dev/null
+          wallrack state unset tag_edit_folder >/dev/null
           wallrack view
           exit 0
           ;;
@@ -457,8 +438,10 @@ case "$ROFI_RETV" in
     wallrack state unset tag_filter >/dev/null
     wallrack state unset tag_mode >/dev/null
     wallrack state unset tag_edit_target >/dev/null
+    wallrack state unset tag_edit_folder >/dev/null
     wallrack state unset tag_add_mode >/dev/null
     wallrack state unset rating_edit_target >/dev/null
+    wallrack state unset rating_edit_folder >/dev/null
     wallrack state unset booru_search_mode >/dev/null
     ensure_index "$new_mode"
     wallrack view
@@ -482,9 +465,26 @@ case "$ROFI_RETV" in
     exit 0
     ;;
   12)
-    # kb-custom-3 (Alt+3): toggle favorite on highlighted entry.
+    # kb-custom-3 (Alt+3): toggle favorite on highlighted entry, or on
+    # every entry under a folder row (collective toggle — favorites all if
+    # any non-favorite remains, otherwise drops the lot).
     if [[ "$ROFI_INFO" == folder:* ]]; then
-      notify-send "${NOTIFY_OPTIONS[@]}" "Folders aren't favoritable — drill in first."
+      folder="${ROFI_INFO#folder:}"
+      folder_label="${folder%/}"
+      folder_label="${folder_label##*/}/"
+      if result=$(wallrack favorites toggle --integration="$picker_mode" --folder="$folder" 2>/dev/null); then
+        notify-send "${NOTIFY_OPTIONS[@]}" "$result favorite: $folder_label (folder)"
+      else
+        notify-send -u critical "${NOTIFY_OPTIONS[@]}" "Failed to toggle favorite on $folder_label"
+      fi
+      current_view=$(wallrack state get view_mode 2>/dev/null || echo all)
+      if [[ "$current_view" == "favorites" ]]; then
+        fav_count=$(wallrack favorites list --integration="$picker_mode" --format=json | jq 'length' 2>/dev/null || echo 0)
+        if [[ "$fav_count" == "0" ]]; then
+          wallrack state set view_mode all >/dev/null
+          notify-send "${NOTIFY_OPTIONS[@]}" "No favorites left — switched to all wallpapers."
+        fi
+      fi
       wallrack view
       exit 0
     fi
@@ -528,10 +528,13 @@ case "$ROFI_RETV" in
     exit 0
     ;;
   14)
-    # kb-custom-5 (Alt+5): open the tag editor for the highlighted entry,
-    # or close it if it's already open (acts as a cancel).
-    if [[ -n "$tag_edit_target" ]]; then
+    # kb-custom-5 (Alt+5): open the tag editor for the highlighted entry
+    # (or folder), or close it if it's already open (acts as a cancel).
+    # Folder rows open a bulk editor: adding/removing fans across every
+    # entry under the folder.
+    if [[ -n "$tag_edit_target" || -n "$tag_edit_folder" ]]; then
       wallrack state unset tag_edit_target >/dev/null
+      wallrack state unset tag_edit_folder >/dev/null
       wallrack state unset tag_add_mode >/dev/null
       wallrack view
       exit 0
@@ -541,14 +544,20 @@ case "$ROFI_RETV" in
       wallrack view
       exit 0
     fi
+    if [[ "$ROFI_INFO" == folder:* ]]; then
+      folder="${ROFI_INFO#folder:}"
+      wallrack state set tag_edit_folder "$folder" >/dev/null
+      wallrack view
+      exit 0
+    fi
     target=$(target_id_from_highlight)
     if [[ -z "$target" ]]; then
-      notify-send "${NOTIFY_OPTIONS[@]}" "Highlight a wallpaper to edit its tags."
+      notify-send "${NOTIFY_OPTIONS[@]}" "Highlight a wallpaper or folder to edit tags."
       wallrack view
       exit 0
     fi
     wallrack state set tag_edit_target "$target" >/dev/null
-    render_tag_editor
+    wallrack view
     exit 0
     ;;
   15)
@@ -618,24 +627,31 @@ case "$ROFI_RETV" in
     exit 0
     ;;
   18)
-    # kb-custom-9 (Alt+9): open the rating editor for the highlighted entry,
-    # or close it if it's already open (acts as a cancel). Lists Mature /
-    # Questionable / Everyone and a Clear-override row; the result is a
-    # per-entry override stored in the sled `rating_overrides` tree.
-    if [[ -n "$rating_edit_target" ]]; then
+    # kb-custom-9 (Alt+9): open the rating editor for the highlighted
+    # entry, or close it if it's already open (acts as a cancel). Folder
+    # rows open a bulk rating editor — the picked rating gets written to
+    # every entry directly under the folder.
+    if [[ -n "$rating_edit_target" || -n "$rating_edit_folder" ]]; then
       wallrack state unset rating_edit_target >/dev/null
+      wallrack state unset rating_edit_folder >/dev/null
       wallrack view
       exit 0
     fi
-    if [[ "$tag_mode" == "selecting" || -n "$tag_edit_target" ]]; then
+    if [[ "$tag_mode" == "selecting" || -n "$tag_edit_target" || -n "$tag_edit_folder" ]]; then
       # Don't pile sub-views on top of each other — the tag sub-views own
       # the screen until the user backs out of them.
       wallrack view
       exit 0
     fi
+    if [[ "$ROFI_INFO" == folder:* ]]; then
+      folder="${ROFI_INFO#folder:}"
+      wallrack state set rating_edit_folder "$folder" >/dev/null
+      wallrack view
+      exit 0
+    fi
     target=$(target_id_from_highlight)
     if [[ -z "$target" ]]; then
-      notify-send "${NOTIFY_OPTIONS[@]}" "Highlight a wallpaper to set its rating."
+      notify-send "${NOTIFY_OPTIONS[@]}" "Highlight a wallpaper or folder to set a rating."
       wallrack view
       exit 0
     fi

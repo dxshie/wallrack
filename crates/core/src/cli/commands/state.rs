@@ -37,8 +37,10 @@ pub(in crate::cli) fn run(paths: &Paths, cmd: StateCmd) -> Result<ExitCode> {
             state.remove(state::keys::DRILL_PATH)?;
             state.remove(state::keys::TAG_MODE)?;
             state.remove(state::keys::TAG_EDIT_TARGET)?;
+            state.remove(state::keys::TAG_EDIT_FOLDER)?;
             state.remove(state::keys::TAG_ADD_MODE)?;
             state.remove(state::keys::RATING_EDIT_TARGET)?;
+            state.remove(state::keys::RATING_EDIT_FOLDER)?;
             state.remove(state::keys::BOORU_SEARCH_MODE)?;
             state.remove(state::keys::APPLY_INTEGRATION_OVERRIDE)?;
             Ok(ExitCode::SUCCESS)

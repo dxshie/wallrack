@@ -22,15 +22,33 @@ pub(in crate::cli) fn run(paths: &Paths, format: Format) -> Result<ExitCode> {
     let state = State::open(paths.store())?;
     let integration = state.picker_mode().as_str().to_string();
     let tag_edit_target = state.tag_edit_target();
+    let tag_edit_folder = state.tag_edit_folder();
     let rating_edit_target = state.rating_edit_target();
+    let rating_edit_folder = state.rating_edit_folder();
 
     match state.picker_view() {
-        PickerView::TagAdd => cmd_add_tag_view(paths, &integration, &tag_edit_target, format),
+        // TagAdd is shared between the per-entry and folder tag editors —
+        // pass whichever target is staked out so the prompt shows the right
+        // label.
+        PickerView::TagAdd => {
+            let label_target = if !tag_edit_folder.is_empty() {
+                tag_edit_folder.as_str()
+            } else {
+                tag_edit_target.as_str()
+            };
+            cmd_add_tag_view(paths, &integration, label_target, format)
+        }
         PickerView::TagEditor => {
             cmd_tag_editor_view(paths, &integration, &tag_edit_target, format)
         }
+        PickerView::TagFolderEditor => {
+            cmd_tag_folder_editor_view(paths, &integration, &tag_edit_folder, format)
+        }
         PickerView::RatingEditor => {
             cmd_rating_editor_view(paths, &integration, &rating_edit_target, format)
+        }
+        PickerView::RatingFolderEditor => {
+            cmd_rating_folder_editor_view(paths, &integration, &rating_edit_folder, format)
         }
         PickerView::TagSelect => tags::run(paths, Some(&integration), format),
         PickerView::Booru => cmd_booru_view(paths, &state, format),
@@ -262,6 +280,126 @@ fn cmd_tag_editor_view(
     let hints = ViewHints {
         prompt: format!("Tags: {label}"),
         message: "Enter to remove tag | \"+ Add\" prompts for a new tag | ← Back".to_string(),
+        use_hot_keys: true,
+        allow_custom: false,
+        filter: String::new(),
+    };
+    let stdout = io::stdout().lock();
+    let mut out = BufWriter::new(stdout);
+    write_rows(&mut out, &rows, &hints, format)?;
+    out.flush()?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Render the folder-scoped tag editor — same shape as the per-entry
+/// editor, but the tag rows come from the *union* of tags across every
+/// entry directly under the folder. Removing a row removes the tag from
+/// every entry that has it.
+fn cmd_tag_folder_editor_view(
+    paths: &Paths,
+    integration: &str,
+    folder: &str,
+    format: Format,
+) -> Result<ExitCode> {
+    use std::collections::BTreeSet;
+    use crate::cli::state_helpers::entries_in_folder;
+
+    let entries = entries_in_folder(paths, integration, folder)?;
+    let mut tags: BTreeSet<String> = BTreeSet::new();
+    for e in &entries {
+        for t in e.tags() {
+            if !t.is_empty() {
+                tags.insert(t.clone());
+            }
+        }
+    }
+    let label = folder
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(folder)
+        .to_string();
+
+    let mut rows: Vec<Row<'_>> = Vec::with_capacity(tags.len() + 2);
+    rows.push(Row::Control {
+        label: "← Back".to_string(),
+        action: Action::TagEditBack,
+        icon: None,
+    });
+    rows.push(Row::Control {
+        label: "+ Add tag…".to_string(),
+        action: Action::TagEditAdd,
+        icon: None,
+    });
+    for t in &tags {
+        rows.push(Row::Control {
+            label: t.clone(),
+            action: Action::TagEditRemove { tag: t.clone() },
+            icon: None,
+        });
+    }
+    let hints = ViewHints {
+        prompt: format!("Tags: {label}/ ({} entries)", entries.len()),
+        message: "Bulk-edit — Enter to remove tag from all entries that have it | \"+ Add\" applies to every entry | ← Back".to_string(),
+        use_hot_keys: true,
+        allow_custom: false,
+        filter: String::new(),
+    };
+    let stdout = io::stdout().lock();
+    let mut out = BufWriter::new(stdout);
+    write_rows(&mut out, &rows, &hints, format)?;
+    out.flush()?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Render the folder-scoped rating editor — identical row layout to the
+/// per-entry editor; the action just gets fanned across every entry in the
+/// folder by the bash wrapper.
+fn cmd_rating_folder_editor_view(
+    paths: &Paths,
+    integration: &str,
+    folder: &str,
+    format: Format,
+) -> Result<ExitCode> {
+    use crate::cli::state_helpers::entries_in_folder;
+    let entries = entries_in_folder(paths, integration, folder)?;
+    let label = folder
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(folder)
+        .to_string();
+
+    let rows: Vec<Row<'_>> = vec![
+        Row::Control {
+            label: "← Back".to_string(),
+            action: Action::RatingEditBack,
+            icon: None,
+        },
+        Row::Control {
+            label: "Mature".to_string(),
+            action: Action::RatingEditSet { rating: "Mature".to_string() },
+            icon: None,
+        },
+        Row::Control {
+            label: "Questionable".to_string(),
+            action: Action::RatingEditSet { rating: "Questionable".to_string() },
+            icon: None,
+        },
+        Row::Control {
+            label: "Everyone".to_string(),
+            action: Action::RatingEditSet { rating: "Everyone".to_string() },
+            icon: None,
+        },
+        Row::Control {
+            label: "Clear override".to_string(),
+            action: Action::RatingEditClear,
+            icon: None,
+        },
+    ];
+    let hints = ViewHints {
+        prompt: format!("Rating: {label}/ ({} entries)", entries.len()),
+        message: "Bulk-edit — applies to every entry in the folder | ← Back to cancel".to_string(),
         use_hot_keys: true,
         allow_custom: false,
         filter: String::new(),

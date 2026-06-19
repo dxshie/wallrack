@@ -105,6 +105,14 @@ impl State {
         self.get(keys::RATING_EDIT_TARGET).unwrap_or_default()
     }
 
+    pub fn tag_edit_folder(&self) -> String {
+        self.get(keys::TAG_EDIT_FOLDER).unwrap_or_default()
+    }
+
+    pub fn rating_edit_folder(&self) -> String {
+        self.get(keys::RATING_EDIT_FOLDER).unwrap_or_default()
+    }
+
     pub fn tag_add_mode_on(&self) -> bool {
         self.get(keys::TAG_ADD_MODE).as_deref() == Some("on")
     }
@@ -137,11 +145,17 @@ impl State {
         if !self.rating_edit_target().is_empty() {
             return PickerView::RatingEditor;
         }
+        if !self.rating_edit_folder().is_empty() {
+            return PickerView::RatingFolderEditor;
+        }
         if self.tag_add_mode_on() {
             return PickerView::TagAdd;
         }
         if !self.tag_edit_target().is_empty() {
             return PickerView::TagEditor;
+        }
+        if !self.tag_edit_folder().is_empty() {
+            return PickerView::TagFolderEditor;
         }
         if self.tag_mode_selecting() {
             return PickerView::TagSelect;
@@ -231,7 +245,9 @@ impl RatingFilter {
 pub enum PickerView {
     TagAdd,
     TagEditor,
+    TagFolderEditor,
     RatingEditor,
+    RatingFolderEditor,
     TagSelect,
     Booru,
     Default,
@@ -246,8 +262,10 @@ pub mod keys {
     pub const TAG_FILTER: &str = "tag_filter";
     pub const TAG_MODE: &str = "tag_mode";
     pub const TAG_EDIT_TARGET: &str = "tag_edit_target";
+    pub const TAG_EDIT_FOLDER: &str = "tag_edit_folder";
     pub const TAG_ADD_MODE: &str = "tag_add_mode";
     pub const RATING_EDIT_TARGET: &str = "rating_edit_target";
+    pub const RATING_EDIT_FOLDER: &str = "rating_edit_folder";
     pub const RATING: &str = "rating";
     pub const BOORU_SITE: &str = "booru_site";
     pub const BOORU_QUERY: &str = "booru_query";
