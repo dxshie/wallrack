@@ -30,6 +30,7 @@
 #                        (booru: cycle search site instead)
 #   Alt+7  kb-custom-7   booru: previous page
 #   Alt+8  kb-custom-8   booru: next page
+#   Alt+9  kb-custom-9   set the rating on the highlighted entry (per-entry override)
 #   Alt+0  kb-custom-10  rebuild the index (current integration; no-op for booru)
 #
 # Rebinding the booru pagination keys to Ctrl+P / Ctrl+N is one rofi flag:
@@ -50,6 +51,7 @@ tag_mode=$(wallrack state get tag_mode 2>/dev/null || echo "")
 drill_path=$(wallrack state get drill_path 2>/dev/null || echo "")
 tag_edit_target=$(wallrack state get tag_edit_target 2>/dev/null || echo "")
 tag_add_mode=$(wallrack state get tag_add_mode 2>/dev/null || echo "")
+rating_edit_target=$(wallrack state get rating_edit_target 2>/dev/null || echo "")
 booru_search_mode=$(wallrack state get booru_search_mode 2>/dev/null || echo "")
 
 # Trace every invocation so the booru search flow can be reconstructed
@@ -174,7 +176,7 @@ target_id_from_highlight() {
     echo "${ROFI_INFO#image:}"
   elif [[ "$ROFI_INFO" == booru-post:* ]]; then
     echo "${ROFI_INFO#booru-post:}"
-  elif [[ "$ROFI_INFO" == back:* || "$ROFI_INFO" == tag:* || "$ROFI_INFO" == tagedit:* ]]; then
+  elif [[ "$ROFI_INFO" == back:* || "$ROFI_INFO" == tag:* || "$ROFI_INFO" == tagedit:* || "$ROFI_INFO" == ratingedit:* ]]; then
     echo ""
   elif [[ -n "$ROFI_INFO" ]]; then
     echo "$ROFI_INFO"
@@ -319,6 +321,47 @@ case "$ROFI_RETV" in
       esac
     fi
 
+    # Rating editor: when a target is staked out, selections drive the
+    # editor rather than the main picker. Same priority concern as the tag
+    # editor — has to come before the image: routing.
+    if [[ -n "$rating_edit_target" ]]; then
+      label="${rating_edit_target##*/}"
+      case "$ROFI_INFO" in
+        ratingedit:back)
+          wallrack state unset rating_edit_target >/dev/null
+          wallrack view
+          exit 0
+          ;;
+        ratingedit:set:*)
+          rating="${ROFI_INFO#ratingedit:set:}"
+          if wallrack rating set --integration="$picker_mode" --id="$rating_edit_target" "$rating" >/dev/null 2>&1; then
+            notify-send "${NOTIFY_OPTIONS[@]}" "Rating set: $rating — $label"
+          else
+            notify-send -u critical "${NOTIFY_OPTIONS[@]}" "Failed to set rating on $label"
+          fi
+          wallrack state unset rating_edit_target >/dev/null
+          wallrack view
+          exit 0
+          ;;
+        ratingedit:clear)
+          if wallrack rating clear --integration="$picker_mode" --id="$rating_edit_target" >/dev/null 2>&1; then
+            notify-send "${NOTIFY_OPTIONS[@]}" "Rating override cleared: $label"
+          else
+            notify-send -u critical "${NOTIFY_OPTIONS[@]}" "Failed to clear rating on $label"
+          fi
+          wallrack state unset rating_edit_target >/dev/null
+          wallrack view
+          exit 0
+          ;;
+        *)
+          # Stray selection (e.g. user typed something). Drop back to view.
+          wallrack state unset rating_edit_target >/dev/null
+          wallrack view
+          exit 0
+          ;;
+      esac
+    fi
+
     # Tag-add mode: the user is typing a new tag in rofi's search box.
     # `$selection` carries whatever they typed (rofi's allow-custom default).
     # Tag editor: when a target is staked out, selections drive the editor
@@ -415,6 +458,7 @@ case "$ROFI_RETV" in
     wallrack state unset tag_mode >/dev/null
     wallrack state unset tag_edit_target >/dev/null
     wallrack state unset tag_add_mode >/dev/null
+    wallrack state unset rating_edit_target >/dev/null
     wallrack state unset booru_search_mode >/dev/null
     ensure_index "$new_mode"
     wallrack view
@@ -570,6 +614,32 @@ case "$ROFI_RETV" in
       booru_run_search
       exit 0
     fi
+    wallrack view
+    exit 0
+    ;;
+  18)
+    # kb-custom-9 (Alt+9): open the rating editor for the highlighted entry,
+    # or close it if it's already open (acts as a cancel). Lists Mature /
+    # Questionable / Everyone and a Clear-override row; the result is a
+    # per-entry override stored in the sled `rating_overrides` tree.
+    if [[ -n "$rating_edit_target" ]]; then
+      wallrack state unset rating_edit_target >/dev/null
+      wallrack view
+      exit 0
+    fi
+    if [[ "$tag_mode" == "selecting" || -n "$tag_edit_target" ]]; then
+      # Don't pile sub-views on top of each other — the tag sub-views own
+      # the screen until the user backs out of them.
+      wallrack view
+      exit 0
+    fi
+    target=$(target_id_from_highlight)
+    if [[ -z "$target" ]]; then
+      notify-send "${NOTIFY_OPTIONS[@]}" "Highlight a wallpaper to set its rating."
+      wallrack view
+      exit 0
+    fi
+    wallrack state set rating_edit_target "$target" >/dev/null
     wallrack view
     exit 0
     ;;

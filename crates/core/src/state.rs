@@ -101,6 +101,10 @@ impl State {
         self.get(keys::TAG_EDIT_TARGET).unwrap_or_default()
     }
 
+    pub fn rating_edit_target(&self) -> String {
+        self.get(keys::RATING_EDIT_TARGET).unwrap_or_default()
+    }
+
     pub fn tag_add_mode_on(&self) -> bool {
         self.get(keys::TAG_ADD_MODE).as_deref() == Some("on")
     }
@@ -125,8 +129,14 @@ impl State {
     }
 
     /// Compute the current picker view. The sub-view checks run in priority
-    /// order (add wins over edit wins over tag-select).
+    /// order (add wins over edit wins over tag-select). Rating-edit is
+    /// mutually exclusive with the tag sub-views — the bash wrapper ensures
+    /// only one is active at a time, but the priority is still spelled out
+    /// for an `Rust → wallrack view` direct call.
     pub fn picker_view(&self) -> PickerView {
+        if !self.rating_edit_target().is_empty() {
+            return PickerView::RatingEditor;
+        }
         if self.tag_add_mode_on() {
             return PickerView::TagAdd;
         }
@@ -221,6 +231,7 @@ impl RatingFilter {
 pub enum PickerView {
     TagAdd,
     TagEditor,
+    RatingEditor,
     TagSelect,
     Booru,
     Default,
@@ -236,6 +247,7 @@ pub mod keys {
     pub const TAG_MODE: &str = "tag_mode";
     pub const TAG_EDIT_TARGET: &str = "tag_edit_target";
     pub const TAG_ADD_MODE: &str = "tag_add_mode";
+    pub const RATING_EDIT_TARGET: &str = "rating_edit_target";
     pub const RATING: &str = "rating";
     pub const BOORU_SITE: &str = "booru_site";
     pub const BOORU_QUERY: &str = "booru_query";

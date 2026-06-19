@@ -22,11 +22,15 @@ pub(in crate::cli) fn run(paths: &Paths, format: Format) -> Result<ExitCode> {
     let state = State::open(paths.store())?;
     let integration = state.picker_mode().as_str().to_string();
     let tag_edit_target = state.tag_edit_target();
+    let rating_edit_target = state.rating_edit_target();
 
     match state.picker_view() {
         PickerView::TagAdd => cmd_add_tag_view(paths, &integration, &tag_edit_target, format),
         PickerView::TagEditor => {
             cmd_tag_editor_view(paths, &integration, &tag_edit_target, format)
+        }
+        PickerView::RatingEditor => {
+            cmd_rating_editor_view(paths, &integration, &rating_edit_target, format)
         }
         PickerView::TagSelect => tags::run(paths, Some(&integration), format),
         PickerView::Booru => cmd_booru_view(paths, &state, format),
@@ -258,6 +262,70 @@ fn cmd_tag_editor_view(
     let hints = ViewHints {
         prompt: format!("Tags: {label}"),
         message: "Enter to remove tag | \"+ Add\" prompts for a new tag | ← Back".to_string(),
+        use_hot_keys: true,
+        allow_custom: false,
+        filter: String::new(),
+    };
+    let stdout = io::stdout().lock();
+    let mut out = BufWriter::new(stdout);
+    write_rows(&mut out, &rows, &hints, format)?;
+    out.flush()?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Render the per-entry rating editor. Rows: a Back row, one row per
+/// settable rating (Mature / Questionable / Everyone), and a Clear row that
+/// drops the override entirely. The current effective rating is surfaced in
+/// the prompt message so the user can see what they're changing.
+fn cmd_rating_editor_view(
+    paths: &Paths,
+    integration: &str,
+    target: &str,
+    format: Format,
+) -> Result<ExitCode> {
+    let integ = integrations::by_name(integration)?;
+    let idx = integ.read_index(paths)?;
+    let current = idx
+        .entries
+        .iter()
+        .find(|e| e.id() == target)
+        .map(|e| e.rating().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "(none)".to_string());
+    let label = target.rsplit('/').next().unwrap_or(target).to_string();
+
+    let rows: Vec<Row<'_>> = vec![
+        Row::Control {
+            label: "← Back".to_string(),
+            action: Action::RatingEditBack,
+            icon: None,
+        },
+        Row::Control {
+            label: "Mature".to_string(),
+            action: Action::RatingEditSet { rating: "Mature".to_string() },
+            icon: None,
+        },
+        Row::Control {
+            label: "Questionable".to_string(),
+            action: Action::RatingEditSet { rating: "Questionable".to_string() },
+            icon: None,
+        },
+        Row::Control {
+            label: "Everyone".to_string(),
+            action: Action::RatingEditSet { rating: "Everyone".to_string() },
+            icon: None,
+        },
+        Row::Control {
+            label: "Clear override".to_string(),
+            action: Action::RatingEditClear,
+            icon: None,
+        },
+    ];
+    let hints = ViewHints {
+        prompt: format!("Rating: {label}"),
+        message: format!(
+            "Current: {current} — Enter to set | ← Back to cancel"
+        ),
         use_hot_keys: true,
         allow_custom: false,
         filter: String::new(),

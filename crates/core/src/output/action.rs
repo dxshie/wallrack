@@ -45,6 +45,15 @@ pub enum Action {
     TagEditRemove { tag: String },
     /// Pick a catalog tag to add to the current entry.
     TagEditPick { tag: String },
+    /// Leave the rating editor.
+    RatingEditBack,
+    /// Pin a rating on the current entry. `rating` is the literal string
+    /// the `wallrack rating` CLI accepts (`Mature` / `Questionable` /
+    /// `Everyone`); we use the wire form rather than the Rating enum so
+    /// this module stays free of the rating-types dependency.
+    RatingEditSet { rating: String },
+    /// Drop the entry's rating override (falls back to its native rating).
+    RatingEditClear,
     /// Inert placeholder. `reason` is a short discriminator for the
     /// originating empty-state view.
     Noop { reason: String },
@@ -70,6 +79,9 @@ impl Action {
             Self::TagEditCancel => "tagedit:cancel".to_string(),
             Self::TagEditRemove { tag } => format!("tagedit:remove:{tag}"),
             Self::TagEditPick { tag } => format!("tagedit:pick:{tag}"),
+            Self::RatingEditBack => "ratingedit:back".to_string(),
+            Self::RatingEditSet { rating } => format!("ratingedit:set:{rating}"),
+            Self::RatingEditClear => "ratingedit:clear".to_string(),
             Self::Noop { reason } => format!("noop:{reason}"),
             Self::Raw { value } => value.clone(),
         }
@@ -93,6 +105,12 @@ impl Action {
         if s == "tagedit:cancel" {
             return Some(Self::TagEditCancel);
         }
+        if s == "ratingedit:back" {
+            return Some(Self::RatingEditBack);
+        }
+        if s == "ratingedit:clear" {
+            return Some(Self::RatingEditClear);
+        }
         if let Some(id) = s.strip_prefix("image:") {
             return Some(Self::ApplyImage { id: id.to_string() });
         }
@@ -113,6 +131,11 @@ impl Action {
         }
         if let Some(tag) = s.strip_prefix("tagedit:pick:") {
             return Some(Self::TagEditPick { tag: tag.to_string() });
+        }
+        if let Some(rating) = s.strip_prefix("ratingedit:set:") {
+            return Some(Self::RatingEditSet {
+                rating: rating.to_string(),
+            });
         }
         if let Some(tag) = s.strip_prefix("tag:") {
             return Some(Self::FilterTag { tag: tag.to_string() });
@@ -154,6 +177,9 @@ mod tests {
             Action::TagEditCancel,
             Action::TagEditRemove { tag: "neon".into() },
             Action::TagEditPick { tag: "neon".into() },
+            Action::RatingEditBack,
+            Action::RatingEditSet { rating: "Mature".into() },
+            Action::RatingEditClear,
             Action::Noop {
                 reason: "empty".into(),
             },
